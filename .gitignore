@@ -1,0 +1,18 @@
+# Private working notes: never commit (the repo is public).
+BRIEF.md
+HANDOFF.md
+DECISIONS.md
+
+# Local data and environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+/data/
+/tmp/
+node_modules/
+.pytest_cache/
+.DS_Store
