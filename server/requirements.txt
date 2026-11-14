@@ -1,0 +1,5 @@
+# Life OS server dependencies.
+#
+# None: the server uses only the Python standard library (http.server,
+# sqlite3, hashlib). If a package is ever added, pin it here with an exact
+# version (name==1.2.3); install.sh and lifeos-update install from this file.
