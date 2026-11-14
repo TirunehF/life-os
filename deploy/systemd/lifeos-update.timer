@@ -1,0 +1,11 @@
+[Unit]
+Description=Life OS: check for an update once after each boot
+Documentation=https://github.com/TirunehF/life-os
+
+[Timer]
+# A timer, not a boot dependency: nothing else waits for this at start-up.
+OnBootSec=90s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

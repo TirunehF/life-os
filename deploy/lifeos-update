@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Update Life OS to the newest commit on the main branch of its repository.
+#
+#   sudo lifeos-update          update now
+#   sudo lifeos-update --boot   same, but waits for the network and never
+#                               reports failure when the repository is unreachable
+#
+# Fast-forward only. After the restart the service must answer api/health
+# with the new commit; if it does not, the previous commit is restored.
+set -euo pipefail
+
+main() {
+  local code=/opt/lifeos env_file=/etc/lifeos/lifeos.env venv=/opt/lifeos/venv
+  local boot=no port old new tries fetched
+  if [ "${1:-}" = --boot ]; then boot=yes; fi
+  [ "$(id -u)" -eq 0 ] || { echo "Run with sudo." >&2; exit 1; }
+  [ -d "$code/.git" ] || { echo "Life OS is not installed in $code." >&2; exit 1; }
+  port=$(sed -n 's/^LIFEOS_PORT=//p' "$env_file" 2>/dev/null | tail -n 1)
+  port=${port:-8787}
+  cd "$code"
+
+  old=$(git rev-parse HEAD)
+  tries=1
+  if [ "$boot" = yes ]; then tries=12; fi
+  fetched=no
+  for _ in $(seq 1 "$tries"); do
+    if git fetch --quiet origin main 2>/dev/null; then fetched=yes; break; fi
+    if [ "$boot" = yes ]; then sleep 10; fi
+  done
+  if [ "$fetched" != yes ]; then
+    echo "Could not reach $(git remote get-url origin); staying on ${old:0:12}."
+    if [ "$boot" = yes ]; then exit 0; fi
+    exit 1
+  fi
+  new=$(git rev-parse FETCH_HEAD)
+  if [ "$old" = "$new" ]; then
+    echo "Already up to date (${old:0:12})."
+    exit 0
+  fi
+  if ! git merge-base --is-ancestor "$old" "$new"; then
+    echo "The repository's main branch does not continue from the installed commit ${old:0:12}; not updating." >&2
+    exit 1
+  fi
+
+  echo "Updating ${old:0:12} -> ${new:0:12}"
+  checkout "$old" "$new"
+  systemctl restart lifeos.service
+  if healthy "$new"; then
+    echo "Life OS is running commit ${new:0:12}."
+    if ! git diff --quiet "$old" "$new" -- deploy; then
+      echo "The install files changed too. To apply them: sudo $code/deploy/install.sh"
+    fi
+    exit 0
+  fi
+
+  echo "The new version did not come up healthy; going back to ${old:0:12}." >&2
+  checkout "$new" "$old"
+  systemctl restart lifeos.service
+  if healthy "$old"; then
+    echo "Rolled back. Life OS is running commit ${old:0:12} again." >&2
+  else
+    echo "The previous version is not healthy either. Look at: journalctl -u lifeos -n 50" >&2
+  fi
+  exit 1
+}
+
+# Move the working tree from commit $1 to commit $2 and install changed packages.
+checkout() {
+  git reset --quiet --hard "$2"
+  chown -R root:root "$code"
+  chmod -R u+rwX,go+rX,go-w "$code"
+  if ! "$venv/bin/python" -c 'import sys' >/dev/null 2>&1; then
+    rm -rf "$venv"
+    python3 -m venv "$venv" >/dev/null 2>&1 || python3 -m venv --without-pip "$venv"
+  fi
+  if ! git diff --quiet "$1" "$2" -- server/requirements.txt \
+     && grep -Eqv '^[[:space:]]*(#|$)' server/requirements.txt; then
+    "$venv/bin/pip" install --quiet --no-input --disable-pip-version-check -r server/requirements.txt
+  fi
+}
+
+# True once api/health answers ok with the expected commit.
+healthy() {
+  local expected=${1:0:12}
+  for _ in $(seq 1 30); do
+    if "$venv/bin/python" - "$port" "$expected" <<'PY' 2>/dev/null
+import json, sys, urllib.request
+with urllib.request.urlopen("http://127.0.0.1:%s/api/health" % sys.argv[1], timeout=3) as resp:
+    body = json.load(resp)
+sys.exit(0 if body.get("ok") and body.get("commit") == sys.argv[2] else 1)
+PY
+    then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
+# The whole file is parsed before anything runs, so replacing it mid-update is safe.
+main "$@"
+exit

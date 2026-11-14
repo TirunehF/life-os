@@ -1,0 +1,3 @@
+#!/bin/sh
+# Stand-in for journalctl in the test container: there is no journal.
+exit 0

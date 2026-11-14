@@ -1,0 +1,13 @@
+[Unit]
+Description=Life OS: nightly snapshot
+Documentation=https://github.com/TirunehF/life-os
+
+[Timer]
+# The installer overrides the time (--backup-time). Persistent: a snapshot
+# missed while the machine was off runs at the next start.
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

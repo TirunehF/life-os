@@ -1,0 +1,10 @@
+[Unit]
+Description=Life OS: update from the repository
+Documentation=https://github.com/TirunehF/life-os
+Wants=network-online.target
+After=network-online.target lifeos.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/lifeos-update --boot
+TimeoutStartSec=15min

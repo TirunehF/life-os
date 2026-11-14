@@ -1,0 +1,53 @@
+[Unit]
+Description=Life OS (private journal, 127.0.0.1 only)
+Documentation=https://github.com/TirunehF/life-os
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=exec
+User=lifeos
+Group=lifeos
+WorkingDirectory=/opt/lifeos/server
+EnvironmentFile=/etc/lifeos/lifeos.env
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/lifeos/venv/bin/python -m lifeos
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+# The process can write to its data folder and nowhere else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/lifeos
+
+# The process cannot reach the network at all: loopback only. Other devices
+# come in through "tailscale serve", which connects to 127.0.0.1.
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

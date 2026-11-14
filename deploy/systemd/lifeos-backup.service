@@ -1,0 +1,36 @@
+[Unit]
+Description=Life OS: snapshot of the database
+Documentation=https://github.com/TirunehF/life-os
+
+[Service]
+Type=oneshot
+User=lifeos
+Group=lifeos
+WorkingDirectory=/opt/lifeos/server
+EnvironmentFile=/etc/lifeos/lifeos.env
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/lifeos/venv/bin/python -m lifeos.backup
+UMask=0077
+
+# Same lock-down as the service, and no network at all. The installer adds
+# the backup folder to ReadWritePaths when it is outside /var/lib/lifeos.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ReadWritePaths=/var/lib/lifeos
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native

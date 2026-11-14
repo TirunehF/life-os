@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Stand-in for systemctl in the test container. It starts and stops the Life OS
+# processes directly, as the units would, so that install.sh, lifeos-update and
+# uninstall.sh can be exercised without systemd. It applies none of the units'
+# sandbox settings; those are checked on a real machine.
+set -u
+state=/run/fake-systemd
+mkdir -p "$state/enabled"
+
+args=() now=no
+for a in "$@"; do
+  case "$a" in
+    --now) now=yes ;;
+    -*) ;;
+    *) args+=("$a") ;;
+  esac
+done
+cmd=${args[0]:-}
+units=("${args[@]:1}")
+
+as_service() {   # run a Life OS module as the service user, with the unit's environment
+  ( set -a; . /etc/lifeos/lifeos.env; set +a
+    cd /opt/lifeos/server
+    exec runuser -u lifeos -- env PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 /opt/lifeos/venv/bin/python -m "$@" )
+}
+stop_main()  { pkill -u lifeos -f -- '-m lifeos$' 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -u lifeos -f -- '-m lifeos$' >/dev/null || return 0; sleep 0.2; done; pkill -9 -u lifeos -f -- '-m lifeos$' 2>/dev/null; return 0; }
+start_main() { stop_main; (umask 077; as_service lifeos >>/var/log/lifeos.log 2>&1 &) ; }
+
+status=0
+case "$cmd" in
+  daemon-reload) ;;
+  enable)  for u in "${units[@]}"; do [ -f "/etc/systemd/system/$u" ] || { echo "no unit $u" >&2; status=1; }; touch "$state/enabled/$u"; done ;;
+  disable) for u in "${units[@]}"; do rm -f "$state/enabled/$u"; [ "$now" = yes ] && [ "$u" = lifeos.service ] && stop_main; done ;;
+  is-enabled) [ -f "$state/enabled/${units[0]}" ] || status=1 ;;
+  is-active)  pgrep -u lifeos -f -- '-m lifeos$' >/dev/null || status=3 ;;
+  start|restart)
+    for u in "${units[@]}"; do
+      case "$u" in
+        lifeos.service) start_main ;;
+        lifeos-backup.service) (umask 077; as_service lifeos.backup) || status=1 ;;
+        lifeos-update.service) /usr/local/sbin/lifeos-update --boot || status=1 ;;
+        *.timer) ;;
+        *) echo "fake systemctl: unknown unit $u" >&2; status=1 ;;
+      esac
+    done ;;
+  stop) for u in "${units[@]}"; do [ "$u" = lifeos.service ] && stop_main; done ;;
+  *) echo "fake systemctl: unsupported: $*" >&2; status=1 ;;
+esac
+exit "$status"
