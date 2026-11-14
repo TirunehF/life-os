@@ -65,12 +65,14 @@ Run all of these before committing; none needs a package to be installed.
 python3 -m unittest discover -s tests     # server, validation, lock, static checks
 node --test tests/demo.test.mjs           # demo data on faked dates
 node tests/smoke.mjs                      # headless Chrome, both modes (Node 22+, Chrome)
+node tests/firefox-check.mjs              # the same essentials in Firefox's engine, at phone size
 tests/container/run.sh                    # installer life cycle (Docker, unprivileged)
 ```
 
 `tests/run.sh` runs the first three. The smoke test fails on any console
 error, uncaught exception or request to another host, so run it after every
-change to `app/`. `SHOTS=/some/folder node tests/smoke.mjs` saves screenshots.
+change to `app/`. The owner uses the app in Firefox on Android, so run the
+Firefox check too when you touch the lock, the pattern grid or the layout. `SHOTS=/some/folder node tests/smoke.mjs` saves screenshots.
 
 When you change behaviour, change the test that covers it in the same commit:
 `tests/test_server.py` for the API and the lock, `tests/smoke.mjs` for

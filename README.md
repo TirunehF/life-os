@@ -167,6 +167,7 @@ selects server mode.
 
 ```sh
 tests/run.sh                 # everything: needs Python 3, Node 22+ and Chrome
+node tests/firefox-check.mjs # the essentials again in Firefox, at phone size
 tests/container/run.sh       # the installer, in a throwaway Docker container
 
 # run the server against an empty local database
