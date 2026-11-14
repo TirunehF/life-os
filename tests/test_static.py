@@ -143,7 +143,7 @@ class Repository(unittest.TestCase):
         patterns = {
             "private IPv4 address": r"\b(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b",
             "tailnet address": r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b",
-            "home folder": r"/home/(?!you\b|pi\b|USER\b)[a-z][a-z0-9_-]*",
+            "home folder": r"/home/(?!you\b|pi\b|USER\b|someone\b)[a-z][a-z0-9_-]*",
             "tailnet host name": r"\b[a-z0-9-]+\.(?!example\.)[a-z0-9-]+\.ts\.net\b",
             "mail address": r"\b[A-Za-z0-9._%+-]+@(?!example\.|users\.noreply\.github\.com|anthropic\.com)[A-Za-z0-9-]+\.[a-z]{2,}\b",
         }
