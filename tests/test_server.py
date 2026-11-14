@@ -467,7 +467,7 @@ class Data(ServerCase):
                              check=True, capture_output=True).stdout
         original = json.loads(out.decode("utf-8"))
         self.assertGreater(len(original["days"]), 50)
-        resp = self.c.post("/api/import", None, raw=out)
+        resp = self.c.request("POST", "/api/import", raw=out)
         self.assertEqual(resp.status, 200, resp.body[:300])
         self.assertEqual(data(resp)["imported"], sum(len(v) for v in original.values()))
         self.assertEqual(data(self.c.get("/api/data")), original)
