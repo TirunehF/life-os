@@ -63,7 +63,7 @@ checkout to `/opt/lifeos` (root-owned), creates `/var/lib/lifeos` (owned by
 |------|------|
 | `lifeos.service` | The server. |
 | `lifeos-backup.timer` and `.service` | Nightly snapshot, `Persistent=true`. |
-| `lifeos-update.timer` and `.service` | One update check 90 seconds after each boot (optional). |
+| `lifeos-update.timer` and `.service` | An update check 90 seconds after each boot and every night at 04:15 (optional). |
 
 Options are kept in `/etc/lifeos/lifeos.env`, which is also the units'
 `EnvironmentFile`. Things that depend on options (snapshot time, an external
@@ -106,9 +106,9 @@ password; it only re-opens a session that already exists on that device.
 
 - **Root on the host** can read everything. So can anyone who can become root:
   keep `sudo` behind a password on the host.
-- **The repository is the update authority.** With update-at-boot on, whatever
-  is on the tracked repository's `main` branch runs on the machine after the
-  next boot, and `lifeos-update` itself runs as root. Protect the GitHub
+- **The repository is the update authority.** With automatic updates on,
+  whatever is on the tracked repository's `main` branch runs on the machine by
+  the next night, and `lifeos-update` itself runs as root. Protect the GitHub
   account (two-factor sign-in), or install with `--no-auto-update`.
 - **The setup window.** Until a password is set, the first visitor sets it.
   This includes other software on the host itself, which can reach the

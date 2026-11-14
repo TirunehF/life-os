@@ -36,8 +36,9 @@ Usage: sudo ./deploy/install.sh [options]
                            other than "tailscale serve".
   --repo URL               Repository to pull updates from (default: the origin of
                            this checkout).
-  --no-auto-update         Do not check for updates after each boot.
-  --auto-update            Check for updates after each boot (the default).
+  --no-auto-update         Do not update by itself; only when you run lifeos-update.
+  --auto-update            Check for updates after each boot and every night at
+                           04:15 (the default).
   -h, --help               Show this help.
 
 Run again at any time to change an option; options you leave out keep their value.
@@ -265,9 +266,10 @@ systemctl enable --quiet lifeos.service lifeos-backup.timer
 systemctl restart lifeos.service lifeos-backup.timer
 if [ "$AUTO_UPDATE" = yes ]; then
   systemctl enable --quiet lifeos-update.timer
-  note "updates: checked once after every boot (lifeos-update.timer)"
+  systemctl restart lifeos-update.timer
+  note "updates: checked after every boot and every night at 04:15 (lifeos-update.timer)"
 else
-  systemctl disable --quiet lifeos-update.timer 2>/dev/null || true
+  systemctl disable --now --quiet lifeos-update.timer 2>/dev/null || true
   note "updates: only when you run sudo lifeos-update"
 fi
 

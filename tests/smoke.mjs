@@ -4,6 +4,7 @@
      node tests/smoke.mjs            both modes
      node tests/smoke.mjs server     only the self-hosted mode
      node tests/smoke.mjs demo       only the demo
+     DEMO_URL=https://... node tests/smoke.mjs demo    a published demo page
 
    Needs Node 22+ (built-in WebSocket), Python 3 and Chrome or Chromium
    (set CHROME=/path/to/browser to choose one). No npm packages.
@@ -507,8 +508,9 @@ async function serverMode(browser) {
 /* ---------- demo mode ---------- */
 async function demoMode(browser) {
   console.log('Demo mode');
-  const origin = await startStatic();
-  const base = origin + '/life-os/';
+  const live = process.env.DEMO_URL;                    // test a published demo instead of the local files
+  const origin = live ? new URL(live).origin : await startStatic();
+  const base = live || origin + '/life-os/';
   const page = await browser.page(origin);
   const nextDownload = await downloads(browser, page);
   await page.goto(base);

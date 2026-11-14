@@ -109,9 +109,9 @@ git -C /work push -q origin main
 lifeos-update
 [ "$(health_commit)" = "$(git -C /work rev-parse HEAD | cut -c1-12)" ] || fail "the fixed commit is not running"
 
-step "lifeos-update --boot: unreachable repository is not an error; the boot timer unit works"
+step "lifeos-update --auto: an unreachable repository is not an error; the timer's unit works"
 git -C /opt/lifeos remote set-url origin /srv/missing.git
-timeout 200 lifeos-update --boot | tail -n 1
+timeout 200 lifeos-update --auto | tail -n 1
 if lifeos-update >/dev/null 2>&1; then fail "manual update should fail when the repository is unreachable"; fi
 git -C /opt/lifeos remote set-url origin /srv/origin.git
 systemctl start lifeos-update.service

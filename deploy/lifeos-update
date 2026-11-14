@@ -2,8 +2,9 @@
 # Update Life OS to the newest commit on the main branch of its repository.
 #
 #   sudo lifeos-update          update now
-#   sudo lifeos-update --boot   same, but waits for the network and never
-#                               reports failure when the repository is unreachable
+#   sudo lifeos-update --auto   same, for the timer: waits for the network and
+#                               does not report failure when the repository
+#                               cannot be reached
 #
 # Fast-forward only. After the restart the service must answer api/health
 # with the new commit; if it does not, the previous commit is restored.
@@ -11,8 +12,8 @@ set -euo pipefail
 
 main() {
   local code=/opt/lifeos env_file=/etc/lifeos/lifeos.env venv=/opt/lifeos/venv
-  local boot=no port old new tries fetched
-  if [ "${1:-}" = --boot ]; then boot=yes; fi
+  local auto=no port old new tries fetched
+  if [ "${1:-}" = --auto ]; then auto=yes; fi
   [ "$(id -u)" -eq 0 ] || { echo "Run with sudo." >&2; exit 1; }
   [ -d "$code/.git" ] || { echo "Life OS is not installed in $code." >&2; exit 1; }
   port=$(sed -n 's/^LIFEOS_PORT=//p' "$env_file" 2>/dev/null | tail -n 1)
@@ -21,15 +22,15 @@ main() {
 
   old=$(git rev-parse HEAD)
   tries=1
-  if [ "$boot" = yes ]; then tries=12; fi
+  if [ "$auto" = yes ]; then tries=12; fi
   fetched=no
   for _ in $(seq 1 "$tries"); do
     if git fetch --quiet origin main 2>/dev/null; then fetched=yes; break; fi
-    if [ "$boot" = yes ]; then sleep 10; fi
+    if [ "$auto" = yes ]; then sleep 10; fi
   done
   if [ "$fetched" != yes ]; then
     echo "Could not reach $(git remote get-url origin); staying on ${old:0:12}."
-    if [ "$boot" = yes ]; then exit 0; fi
+    if [ "$auto" = yes ]; then exit 0; fi
     exit 1
   fi
   new=$(git rev-parse FETCH_HEAD)

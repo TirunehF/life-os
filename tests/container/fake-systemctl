@@ -38,7 +38,7 @@ case "$cmd" in
       case "$u" in
         lifeos.service) start_main ;;
         lifeos-backup.service) (umask 077; as_service lifeos.backup) || status=1 ;;
-        lifeos-update.service) /usr/local/sbin/lifeos-update --boot || status=1 ;;
+        lifeos-update.service) /usr/local/sbin/lifeos-update --auto || status=1 ;;
         *.timer) ;;
         *) echo "fake systemctl: unknown unit $u" >&2; status=1 ;;
       esac

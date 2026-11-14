@@ -129,10 +129,10 @@ sudo lifeos-update
 
 fetches the newest commit of this repository's `main` branch, restarts the
 service, and checks that it answers. If it does not, the previous version is
-restored. By default the same check also runs once after each boot; install
-with `--no-auto-update` if you prefer to update by hand. An install follows
-the repository it was cloned from, so fork it if you want to decide what your
-machine runs.
+restored. By default the same check also runs after each boot and every night
+at 04:15; install with `--no-auto-update` if you prefer to update by hand. An
+install follows the repository it was cloned from, so fork it if you want to
+decide what your machine runs.
 
 ## Uninstall
 
