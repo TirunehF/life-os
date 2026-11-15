@@ -172,6 +172,20 @@ LIFEOS_DATA=/tmp/lifeos-dev python3 -m lifeos        # from the server/ folder
 Then open <http://127.0.0.1:8787>. To look at the demo locally, serve `app/`
 with any static file server.
 
+## Licence
+
+Life OS is free to use, change and share for personal and any other
+non-commercial purpose, as long as the author stays credited: keep
+[`LICENSE.md`](LICENSE.md), including its line
+
+    Required Notice: Copyright (c) 2026 TirunehF (https://github.com/TirunehF/life-os)
+
+with every copy and every changed version. The terms are the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md).
+
+Commercial use is not included, but it can be granted: open an issue on this
+repository and ask.
+
 The fonts in `app/fonts/` are Instrument Sans and seven other text faces under
 the SIL Open Font License, and Material Symbols under the Apache License 2.0;
 the licence texts are next to the files.
