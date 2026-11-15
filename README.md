@@ -174,17 +174,10 @@ with any static file server.
 
 ## Licence
 
-Life OS is free to use, change and share for personal and any other
-non-commercial purpose, as long as the author stays credited: keep
-[`LICENSE.md`](LICENSE.md), including its line
-
-    Required Notice: Copyright (c) 2026 TirunehF (https://github.com/TirunehF/life-os)
-
-with every copy and every changed version. The terms are the
-[PolyForm Noncommercial License 1.0.0](LICENSE.md).
-
-Commercial use is not included, but it can be granted: open an issue on this
-repository and ask.
+Life OS is a hobby project, shared in the hope that it helps you live a
+little better. Use it, change it and pass it on; keep the author's name on
+it; ask before you earn money with it. [`LICENSE.md`](LICENSE.md) says so in
+a few sentences.
 
 The fonts in `app/fonts/` are Instrument Sans and seven other text faces under
 the SIL Open Font License, and Material Symbols under the Apache License 2.0;
