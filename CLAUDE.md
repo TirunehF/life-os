@@ -10,7 +10,9 @@ repository.
 
 1. **Never read real data.** Do not open, copy, print or query
    `/var/lib/lifeos`, any snapshot of it, or any export file the owner
-   produces, on any machine. Develop and test only with generated data
+   produces, on any machine. That includes the `backups/` folder in this
+   checkout on the owner's laptop (git-ignored): never open it, list it or
+   copy from it. Develop and test only with generated data
    (`app/demo.js`, the fixtures in `tests/`). If a task seems to need real
    data, stop and ask.
 2. **Nothing private in the repository.** No real names, host names, IP
@@ -55,7 +57,7 @@ repository.
 | `server/lifeos/` | The server. `app.py` routes, `auth.py` login and lock, `db.py` storage and validation. |
 | `deploy/` | `install.sh`, systemd units, `lifeos-update`, `lifeos-reset-password`, `uninstall.sh`. |
 | `docs/data-format.md` | The contract for exports, imports and backups. Change it together with `SCHEMA` and `db.py`. |
-| `tools/` | Developer tools, never used at runtime: `fetch-fonts.py`, `make-icons.py`. |
+| `tools/` | Developer tools, never used at runtime: `fetch-fonts.py`, `make-icons.py`, and `open-backup.mjs`, which opens an encrypted backup without the app. |
 
 ## Tests
 

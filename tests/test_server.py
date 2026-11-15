@@ -236,6 +236,21 @@ class SetupAndLogin(ServerCase):
         self.assertRefused(self.login(other), 403, "wrong")
         self.assertEqual(other.post("/api/auth/login", {"password": new}).status, 200)
 
+    def test_verify_checks_the_password_and_counts_wrong_ones(self):
+        self.setup_account()
+        self.assertRefused(Client(self.app).post("/api/auth/verify", {"password": PASSWORD}), 401, "auth")
+        self.assertEqual(self.c.post("/api/auth/verify", {"password": PASSWORD}).status, 200)
+        self.assertEqual(self.c.get("/api/data").status, 200)          # nothing about the session changed
+        for wrong in ({"password": "not the password"}, {}, {"password": 12345}, {"password": "nope nope nope"}):
+            self.assertRefused(self.c.post("/api/auth/verify", wrong), 403, "wrong")
+        resp = self.c.post("/api/auth/verify", {"password": "not the password"})   # 5th in a row
+        self.assertRefused(resp, 403, "wrong")
+        self.assertGreater(data(resp)["retry_after"], 0)
+        self.assertRefused(self.c.post("/api/auth/verify", {"password": PASSWORD}), 429, "throttled")
+        self.assertRefused(self.login(Client(self.app)), 429, "throttled")         # the same counter as sign-in
+        self.clock.advance(data(resp)["retry_after"] + 1)
+        self.assertEqual(self.c.post("/api/auth/verify", {"password": PASSWORD}).status, 200)
+
 
 class Lock(ServerCase):
     def lock_now(self, client=None):
@@ -252,6 +267,7 @@ class Lock(ServerCase):
             self.c.delete("/api/data/days/2026-01-05"),
             self.c.post("/api/import", {"days": {}}),
             self.c.post("/api/auth/ping"),
+            self.c.post("/api/auth/verify", {"password": PASSWORD}),
             self.c.post("/api/auth/password", {"current": PASSWORD, "new": "another password"}),
             self.c.post("/api/auth/pattern", {"current": PASSWORD, "pattern": None}),
             self.c.post("/api/auth/device", {"quick": "none"}),

@@ -31,6 +31,40 @@ An import may leave collections out, and may contain only some documents. It
 **upserts**: a document with an existing id replaces the stored one as a whole
 (there is no field-level merge), and nothing is ever deleted by an import.
 
+## The encrypted backup file
+
+"Encrypted backup" in Settings, and the offer that appears when a week is
+closed, write the same export, locked with a password. On an install it has
+to be the Life OS password of that moment: the server checks it before the
+file is made, so a typing mistake cannot lock a backup. The file is a JSON
+object:
+
+```json
+{
+  "lifeos_backup": 1,
+  "created": "2026-03-09T18:30:00.000Z",
+  "kdf": "PBKDF2-HMAC-SHA256",
+  "iterations": 600000,
+  "salt": "base64, 16 bytes",
+  "cipher": "AES-256-GCM",
+  "iv": "base64, 12 bytes",
+  "data": "base64: the encrypted export, followed by the 16-byte GCM tag"
+}
+```
+
+The key is PBKDF2-HMAC-SHA256 over the password (UTF-8) with the given salt
+and iteration count, 32 bytes long. The plaintext is the export file above.
+Everything happens in the browser; neither the password nor the key is
+stored anywhere. A backup keeps opening with the password it was saved
+with, also after the Life OS password has changed.
+
+To use one: "Import export or backup" in Settings asks for its password and
+then imports it like an export. Without the app:
+
+```sh
+node tools/open-backup.mjs life-os-backup-2026-03-09-1830.json export.json
+```
+
 ## Rules for every document
 
 | Rule | Detail |

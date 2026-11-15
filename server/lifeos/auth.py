@@ -280,6 +280,12 @@ def login(con, password, device, old_token, now):
     return _create_session(con, now, quick, relock)
 
 
+def verify_password(con, password, now):
+    """Is this the current password? For the page, before it locks a backup with
+    it. Wrong answers count towards the same delay as wrong sign-ins."""
+    _check_password(con, password, now)
+
+
 def change_password(con, session, current, new, now):
     check_new_password(new)
     _check_password(con, current, now)

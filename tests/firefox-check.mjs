@@ -12,12 +12,13 @@
    FIREFOX_PROFILE_DIR=/some/folder if Firefox cannot use the system temp
    folder (the snap package cannot). SHOTS=/some/folder saves screenshots. */
 import {spawn, spawnSync} from 'node:child_process';
-import {mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, statSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync} from 'node:fs';
 import {createServer} from 'node:http';
 import {createServer as createTcp} from 'node:net';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {openBackup} from '../tools/open-backup.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PASSWORD = 'firefox check password';
@@ -46,6 +47,15 @@ class Firefox {
     const base = process.env.FIREFOX_PROFILE_DIR || tmpdir();
     mkdirSync(base, {recursive: true});
     const profile = mkdtempSync(path.join(base, 'lifeos-firefox-'));
+    /* Downloads go to a set folder without a question, as in a profile that is kept for Life OS only. */
+    const downloads = path.join(profile, 'downloads');
+    mkdirSync(downloads);
+    writeFileSync(path.join(profile, 'user.js'), [
+      'user_pref("browser.download.dir", ' + JSON.stringify(downloads) + ');',
+      'user_pref("browser.download.folderList", 2);',
+      'user_pref("browser.download.useDownloadDir", true);',
+      'user_pref("browser.download.alwaysOpenPanel", false);',
+    ].join('\n') + '\n');
     const port = await freePort();
     const proc = spawn(findFirefox(), ['--headless', '--no-remote', '--profile', profile, '--remote-debugging-port', String(port), 'about:blank'],
       {stdio: ['ignore', 'ignore', 'pipe']});
@@ -59,6 +69,7 @@ class Firefox {
     const ws = new WebSocket('ws://127.0.0.1:' + port + '/session');
     await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error('BiDi socket failed')); });
     const ff = new Firefox(ws);
+    ff.downloads = downloads;
     await ff.send('session.new', {capabilities: {}});
     await ff.send('session.subscribe', {events: ['log.entryAdded']});
     ff.context = (await ff.send('browsingContext.getTree', {})).contexts[0].context;
@@ -243,6 +254,26 @@ try {
   await ff.wait(`[...document.querySelectorAll('.sec h2')].some(h=>h.textContent==='Security')`, 'the Security section');
   await ff.shot('firefox-4-settings');
   ff.check('review, tasks and settings');
+
+  /* encrypted backup: sealed by Firefox, saved without a question, opened outside the browser */
+  await ff.eval(`document.querySelector('.schema details').open=true`);
+  await ff.tap('[data-action="backup-open"]');
+  await ff.type('#sheet [data-sk="pw"]', PASSWORD);
+  await ff.tap('[data-action="backup-go"]');
+  let backup = null;
+  for (let i = 0; i < 150 && !backup; i++) {
+    backup = readdirSync(ff.downloads).find(f => /^life-os-backup-\d{4}-\d\d-\d\d-\d{4}\.json$/.test(f)) || null;
+    if (!backup) await sleep(100);
+  }
+  assert(backup, 'no backup file in the download folder: ' + JSON.stringify(readdirSync(ff.downloads)));
+  await sleep(300);
+  const envelope = JSON.parse(readFileSync(path.join(ff.downloads, backup), 'utf8'));
+  const inside = JSON.parse(openBackup(envelope, PASSWORD));
+  assert(Object.keys(inside).length === 9 && Object.values(inside.days).some(d => d.recap === 'Written in Firefox'), 'the backup holds the data');
+  let opened = true;
+  try { openBackup(envelope, 'not the password'); } catch (e) { opened = false; }
+  assert(!opened, 'a wrong password must not open the backup');
+  ff.check('encrypted backup lands in the download folder and opens with the password');
 
   console.log('Demo mode');
   await ff.goto(await startStatic());

@@ -23,6 +23,7 @@ import {createServer as createTcp} from 'node:net';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {openBackup} from '../tools/open-backup.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PASSWORD = 'smoke test password';
@@ -282,10 +283,11 @@ async function downloads(browser, page) {
   const dir = mkdtempSync(path.join(tmpdir(), 'lifeos-smoke-dl-'));
   cleanups.push(() => { try { rmSync(dir, {recursive: true, force: true}); } catch (e) {} });
   await browser.send('Browser.setDownloadBehavior', {behavior: 'allow', downloadPath: dir});
+  const seen = new Set();
   return async () => {
     for (let i = 0; i < 100; i++) {
-      const files = readdirSync(dir).filter(f => !f.endsWith('.crdownload'));
-      if (files.length) { await sleep(100); return path.join(dir, files[0]); }
+      const files = readdirSync(dir).filter(f => /\.(json|csv)$/.test(f) && !seen.has(f));   // Chrome may drop files of its own here
+      if (files.length) { seen.add(files[0]); await sleep(100); return path.join(dir, files[0]); }
       await sleep(100);
     }
     throw new Error('No file was downloaded');
@@ -404,6 +406,79 @@ async function serverMode(browser) {
   assert(sent.length === 1 && sent[0] === 'POST ' + base + '/api/import', 'import is one request: ' + JSON.stringify(sent));
   assert(JSON.stringify((await page.api('api/data')).body) === JSON.stringify(exported), 'export, import, export gives the same data');
   page.check('export to a file and import it again');
+
+  /* encrypted backup: the password is checked by the server, the file is sealed in the browser */
+  const openDialog = async () => {
+    if (!(await page.eval(`document.querySelector('.schema details').open`))) await page.click('.schema details > summary');
+    await page.click('[data-action="backup-open"]');
+    await page.wait(`!!document.querySelector('#sheet [data-sk="pw"]')`, 'the backup dialog');
+  };
+  await openDialog();
+  await page.type('#sheet [data-sk="pw"]', 'not the password');
+  await page.click('[data-action="backup-go"]');
+  await page.toast('Wrong password.');
+  await page.click('#sheet [data-action="sheet-close"]');
+  await openDialog();
+  await page.type('#sheet [data-sk="pw"]', PASSWORD);
+  await page.press('Enter');
+  const backupFile = await nextDownload();
+  assert(/^life-os-backup-\d{4}-\d\d-\d\d-\d{4}\.json$/.test(path.basename(backupFile)), 'backup file name: ' + path.basename(backupFile));
+  await page.wait(`!document.querySelector('#sheet [data-sk="pw"]')`, 'the backup dialog to close');
+  const sealed = readFileSync(backupFile, 'utf8');
+  const envelope = JSON.parse(sealed);
+  assert(envelope.lifeos_backup === 1 && envelope.kdf === 'PBKDF2-HMAC-SHA256' && envelope.cipher === 'AES-256-GCM' && envelope.iterations >= 600000, 'backup header: ' + sealed.slice(0, 160));
+  const locked = Buffer.from(envelope.data, 'base64');
+  assert(!locked.includes('"days"') && !locked.includes(today) && !sealed.includes('"days"'), 'the backup file shows nothing of its contents');
+  assert(JSON.stringify(JSON.parse(openBackup(envelope, PASSWORD))) === JSON.stringify(exported), 'the backup opens with the password and holds the same data as the export');
+  let opened = true;
+  try { openBackup(envelope, 'not the password'); } catch (e) { opened = false; }
+  assert(!opened, 'a wrong password must not open the backup');
+  const tampered = Object.assign({}, envelope, {data: envelope.data.slice(0, 40) + (envelope.data[40] === 'A' ? 'B' : 'A') + envelope.data.slice(41)});
+  opened = true;
+  try { openBackup(tampered, PASSWORD); } catch (e) { opened = false; }
+  assert(!opened, 'a changed backup file must not open');
+  /* importing the encrypted file asks for its password first */
+  const pickFile = async file => {                      // the page is drawn again after every dialog, so look the input up each time
+    const picker = await page.cdp('Runtime.evaluate', {expression: `document.querySelector('input[data-import="__all"]')`});
+    await page.cdp('DOM.setFileInputFiles', {files: [file], objectId: picker.result.objectId});
+  };
+  const beforeImport = page.requests.length;
+  await pickFile(backupFile);
+  await page.wait(`document.querySelector('#sheet h2')?.textContent==='Open backup'`, 'the dialog that asks for the backup password');
+  await page.type('#sheet [data-sk="pw"]', 'not the password');
+  await page.click('[data-action="backup-go"]');
+  await page.toast('That password does not open this backup.');
+  assert(!page.requests.slice(beforeImport).some(r => r.includes('/api/')), 'a wrong backup password sends nothing to the server');
+  await page.click('#sheet [data-action="sheet-close"]');
+  await pickFile(backupFile);
+  await page.wait(`document.querySelector('#sheet h2')?.textContent==='Open backup'`, 'the dialog again');
+  await page.type('#sheet [data-sk="pw"]', PASSWORD);
+  await page.click('[data-action="backup-go"]');
+  await page.toast('Imported ' + Object.values(exported).reduce((n, c) => n + Object.keys(c).length, 0) + ' rows');
+  assert(JSON.stringify((await page.api('api/data')).body) === JSON.stringify(exported), 'importing the backup gives the same data');
+  page.check('encrypted backup: save, open outside the app, import', [403]);
+
+  /* closing a week offers the backup; "Not now" leaves the week closed */
+  await page.click('[data-nav="review"]');
+  await page.click('[data-action="rv-kind"][data-k="week"]');
+  await page.click('[data-action="rv-close"]');
+  await page.wait(`/^Week \\d+ is closed\\./.test(document.querySelector('#sheet .hint')?.textContent||'')`, 'the backup offer after closing a week');
+  await page.shot('server-3b-close-week-backup');
+  await page.click('#sheet .acts [data-action="sheet-close"]');
+  await page.wait(`!document.querySelector('#sheet [data-sk="pw"]')&&!!document.querySelector('[data-action="rv-reopen"]')`, 'the closed week without the dialog');
+  await page.saved();
+  assert(Object.values((await page.api('api/data')).body.periods).some(p => p.closedAt), 'the week is closed on the server');
+  await page.click('[data-action="rv-reopen"]');
+  await page.saved();
+  await page.click('[data-action="rv-kind"][data-k="month"]');
+  await page.click('[data-action="rv-close"]');
+  await page.wait(`!!document.querySelector('[data-action="rv-reopen"]')`, 'the closed month');
+  assert(!(await page.eval(`!!document.querySelector('#sheet [data-sk="pw"]')`)), 'closing a month does not offer a backup');
+  await page.click('[data-action="rv-reopen"]');
+  await page.saved();
+  await page.click('#gear');
+  await page.wait(`[...document.querySelectorAll('.sec h2')].some(h=>h.textContent==='Security')`, 'the Security section again');
+  page.check('closing a week offers a backup');
 
   /* settings: all fonts come from this origin */
   await page.click('[data-action="font-toggle"]');
@@ -559,6 +634,11 @@ async function demoMode(browser) {
   await page.click('[data-action="export-all"]');
   const exported = JSON.parse(readFileSync(await nextDownload(), 'utf8'));
   assert(Object.keys(exported).length === 9 && Object.values(exported.tasks).some(t => t.title === 'A change that is not kept'), 'export works in the demo');
+  await page.click('[data-action="backup-open"]');
+  await page.type('#sheet [data-sk="pw"]', 'any password works here');
+  await page.click('[data-action="backup-go"]');
+  const demoBackup = JSON.parse(readFileSync(await nextDownload(), 'utf8'));
+  assert(JSON.stringify(JSON.parse(openBackup(demoBackup, 'any password works here'))) === JSON.stringify(exported), 'an encrypted backup works in the demo');
   assert(!page.requests.some(r => r.includes('/api/')), 'the demo never calls the API');
   await page.reload();
   await page.ready();

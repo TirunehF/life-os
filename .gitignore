@@ -3,6 +3,9 @@ BRIEF.md
 HANDOFF.md
 DECISIONS.md
 
+# The owner's encrypted backups, when this checkout is on their own computer
+/backups/
+
 # Local data and environments
 .venv/
 venv/

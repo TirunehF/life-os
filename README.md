@@ -85,8 +85,14 @@ last 30 daily and 12 monthly snapshots are kept.
 
 The snapshots are on the same disk as the data. That protects you from
 mistakes and from a damaged database, not from a dead disk. For a copy
-somewhere else, download everything from the app now and then: Settings,
-Schema and data, "Export everything (JSON)".
+somewhere else, save an encrypted backup from the app: Settings, Schema and
+data, "Encrypted backup". It asks for your Life OS password and downloads
+one file that only that password opens. The same offer appears each time you
+close a week in the review, so a weekly habit gives you a weekly backup.
+"Import export or backup" in the same place reads it back, and
+`node tools/open-backup.mjs` opens one without the app.
+
+"Export everything (JSON)" next to it downloads the same data unencrypted.
 
 ```sh
 sudo systemctl start lifeos-backup          # take a snapshot now

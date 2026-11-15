@@ -242,6 +242,9 @@ class App:
             ctx.require_unlocked()
             auth.logout_all(con)
             ctx.session, ctx.clear_cookie = None, True
+        elif action == "verify":
+            ctx.require_unlocked()
+            auth.verify_password(con, body.get("password"), now)
         elif action == "password":
             ctx.require_unlocked()
             auth.change_password(con, ctx.session, body.get("current"), body.get("new"), now)

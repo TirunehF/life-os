@@ -153,6 +153,7 @@ snapshots live in `/var/lib/lifeos/backups`, on the same disk as the data.
 | `POST api/auth/unlock` | session | `{method, secret}` |
 | `POST api/auth/lock`, `logout` | session | |
 | `POST api/auth/ping`, `device`, `password`, `pattern`, `logout-all` | unlocked session | Activity; per-device choices; change the password or the pattern (both need the current password) |
+| `POST api/auth/verify` | unlocked session | `{password}`; says whether it is the current password, counting wrong ones like wrong sign-ins. The page asks before it locks a backup with that password. |
 | `GET api/data`, `PUT`/`DELETE api/data/{collection}/{id}`, `POST api/import` | unlocked session | See `data-format.md` |
 
 Answers are JSON. Errors have the shape `{"error": "...", "code": "..."}`:
