@@ -117,12 +117,17 @@ again; the journal is untouched.
 sudo lifeos-update
 ```
 
-fetches the newest commit of this repository's `main` branch, restarts the
-service, and checks that it answers. If it does not, the previous version is
-restored. By default the same check also runs after each boot and every night
-at 04:15; install with `--no-auto-update` if you prefer to update by hand. An
+fetches the newest tested commit of this repository, restarts the service,
+and checks that it answers. If it does not, the previous version is restored.
+By default the same check also runs every five minutes; install with
+`--no-auto-update` if you prefer to update by hand.
+
+"Tested" means this: every push to `main` runs the tests on GitHub, and only
+when they pass does the branch `tested` move to that commit. Installs follow
+`tested`; a repository that has no such branch is followed on `main`. An
 install follows the repository it was cloned from, so fork it if you want to
-decide what your machine runs.
+decide what your machine runs, and enable Actions in the fork so that
+`tested` keeps moving there.
 
 ## Uninstall
 

@@ -24,3 +24,23 @@ jobs:
         run: node tests/smoke.mjs
         env:
           CHROME_NO_SANDBOX: "1"
+
+  # Installs follow the branch "tested" (see deploy/lifeos-update). It moves
+  # to a commit of main only after every test above has passed for it.
+  mark-tested:
+    needs: tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Move "tested" forward to this commit
+        run: |
+          if git fetch -q origin tested 2>/dev/null && ! git merge-base --is-ancestor FETCH_HEAD "$GITHUB_SHA"; then
+            echo "tested is not behind this commit; leaving it where it is."
+            exit 0
+          fi
+          git push origin "$GITHUB_SHA:refs/heads/tested"

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Update Life OS to the newest commit on the main branch of its repository.
+# Update Life OS to the newest tested commit of its repository.
 #
 #   sudo lifeos-update          update now
-#   sudo lifeos-update --auto   same, for the timer: waits for the network and
-#                               does not report failure when the repository
-#                               cannot be reached
+#   sudo lifeos-update --auto   same, for the timer: says nothing unless it
+#                               changes something, and does not report failure
+#                               when the repository cannot be reached
+#
+# "Tested": the repository's Tests workflow moves the branch "tested" to a
+# commit of main once all tests have passed for it. A repository without that
+# branch is followed on main.
 #
 # Fast-forward only. After the restart the service must answer api/health
 # with the new commit; if it does not, the previous commit is restored.
@@ -12,7 +16,8 @@ set -euo pipefail
 
 main() {
   local code=/opt/lifeos env_file=/etc/lifeos/lifeos.env venv=/opt/lifeos/venv
-  local auto=no port old new tries fetched
+  local auto=no port old new refs tested latest branch
+  local failed_file=$code/.git/lifeos-update-failed
   if [ "${1:-}" = --auto ]; then auto=yes; fi
   [ "$(id -u)" -eq 0 ] || { echo "Run with sudo." >&2; exit 1; }
   [ -d "$code/.git" ] || { echo "Life OS is not installed in $code." >&2; exit 1; }
@@ -21,25 +26,32 @@ main() {
   cd "$code"
 
   old=$(git rev-parse HEAD)
-  tries=1
-  if [ "$auto" = yes ]; then tries=12; fi
-  fetched=no
-  for _ in $(seq 1 "$tries"); do
-    if git fetch --quiet origin main 2>/dev/null; then fetched=yes; break; fi
-    if [ "$auto" = yes ]; then sleep 10; fi
-  done
-  if [ "$fetched" != yes ]; then
-    echo "Could not reach $(git remote get-url origin); staying on ${old:0:12}."
-    if [ "$auto" = yes ]; then exit 0; fi
-    exit 1
+  # One small question to the repository: where are "tested" and "main" now?
+  if ! refs=$(git ls-remote origin refs/heads/tested refs/heads/main 2>/dev/null); then
+    unreachable
   fi
+  tested=$(printf '%s\n' "$refs" | awk '$2 == "refs/heads/tested" { print $1 }')
+  latest=$(printf '%s\n' "$refs" | awk '$2 == "refs/heads/main" { print $1 }')
+  branch=main
+  if [ -n "$tested" ]; then branch=tested; fi
+  new=${tested:-$latest}
+  [ -n "$new" ] || { echo "$(git remote get-url origin) has no main branch; not updating." >&2; exit 1; }
+  if [ "$old" = "$new" ]; then
+    nothing_to_do "Already up to date (${old:0:12})."
+  fi
+  # The timer does not try a commit again that it had to roll back; you can.
+  if [ "$auto" = yes ] && [ "$(cat "$failed_file" 2>/dev/null)" = "$new" ]; then exit 0; fi
+
+  git fetch --quiet origin "$branch" 2>/dev/null || unreachable
   new=$(git rev-parse FETCH_HEAD)
   if [ "$old" = "$new" ]; then
-    echo "Already up to date (${old:0:12})."
-    exit 0
+    nothing_to_do "Already up to date (${old:0:12})."
+  fi
+  if git merge-base --is-ancestor "$new" "$old"; then
+    nothing_to_do "The installed commit ${old:0:12} is newer than the tested one (${new:0:12}); nothing to do."
   fi
   if ! git merge-base --is-ancestor "$old" "$new"; then
-    echo "The repository's main branch does not continue from the installed commit ${old:0:12}; not updating." >&2
+    echo "The repository's $branch branch does not continue from the installed commit ${old:0:12}; not updating." >&2
     exit 1
   fi
 
@@ -48,6 +60,7 @@ main() {
   systemctl restart lifeos.service
   if healthy "$new"; then
     echo "Life OS is running commit ${new:0:12}."
+    rm -f "$failed_file"
     if ! git diff --quiet "$old" "$new" -- deploy; then
       echo "The install files changed too. To apply them: sudo $code/deploy/install.sh"
     fi
@@ -55,6 +68,7 @@ main() {
   fi
 
   echo "The new version did not come up healthy; going back to ${old:0:12}." >&2
+  printf '%s\n' "$new" > "$failed_file"
   checkout "$new" "$old"
   systemctl restart lifeos.service
   if healthy "$old"; then
@@ -63,6 +77,25 @@ main() {
     echo "The previous version is not healthy either. Look at: journalctl -u lifeos -n 50" >&2
   fi
   exit 1
+}
+
+# The repository did not answer. For the timer that is not an error: it asks
+# again in a few minutes.
+unreachable() {
+  if [ "$auto" = yes ]; then exit 0; fi
+  echo "Could not reach $(git remote get-url origin); staying on ${old:0:12}." >&2
+  exit 1
+}
+
+# Nothing to install. Says so, except to the timer.
+nothing_to_do() {
+  if [ "$auto" != yes ]; then
+    echo "$1"
+    if [ -n "$tested" ] && [ -n "$latest" ] && [ "$latest" != "$tested" ]; then
+      echo "main is at ${latest:0:12}, which has not passed the tests (yet)."
+    fi
+  fi
+  exit 0
 }
 
 # Move the working tree from commit $1 to commit $2 and install changed packages.

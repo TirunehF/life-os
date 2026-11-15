@@ -93,14 +93,36 @@ commit "broken change"
 if lifeos-update; then fail "a broken update reported success"; fi
 [ "$(health_commit)" = "$good" ] || fail "not rolled back to $good"
 [ "$(git -C /opt/lifeos rev-parse HEAD | cut -c1-12)" = "$good" ] || fail "checkout not rolled back"
+started=$(pgrep -o -u lifeos -f -- '-m lifeos$')
+out=$(lifeos-update --auto 2>&1) || fail "the timer's run failed on a commit that was already rolled back"
+[ -z "$out" ] || fail "the timer tried the rolled-back commit again: $out"
+[ "$(pgrep -o -u lifeos -f -- '-m lifeos$')" = "$started" ] || fail "the service was restarted for a commit that had already failed"
 git -C /work -c user.name=test -c user.email=test@example.com revert --no-edit HEAD >/dev/null
 git -C /work push -q origin main
 lifeos-update
 [ "$(health_commit)" = "$(git -C /work rev-parse HEAD | cut -c1-12)" ] || fail "the fixed commit is not running"
 
+step "lifeos-update follows the tested branch once the repository has one"
+git -C /work push -q origin main:tested                       # the tests passed for the running commit
+tested=$(health_commit)
+echo "# not tested yet" >> /work/server/requirements.txt
+commit "a change whose tests have not passed"
+lifeos-update | grep -q 'has not passed the tests' || fail "no word about the untested commit on main"
+[ -z "$(lifeos-update --auto 2>&1)" ] || fail "the timer's run is not quiet when there is nothing to do"
+[ "$(health_commit)" = "$tested" ] || fail "an untested commit went live"
+git -C /work push -q origin main:tested                       # now they passed
+lifeos-update
+[ "$(health_commit)" = "$(git -C /work rev-parse HEAD | cut -c1-12)" ] || fail "the tested commit is not running"
+git -C /work push -q -f origin HEAD~1:tested                  # tested behind the installed commit
+lifeos-update | grep -q 'nothing to do' || fail "an install ahead of tested should stay where it is"
+[ "$(health_commit)" = "$(git -C /work rev-parse HEAD | cut -c1-12)" ] || fail "moved backwards to an older tested commit"
+git -C /work push -q origin main:tested
+echo "ok"
+
 step "lifeos-update --auto: an unreachable repository is not an error; the timer's unit works"
 git -C /opt/lifeos remote set-url origin /srv/missing.git
-timeout 200 lifeos-update --auto | tail -n 1
+out=$(timeout 60 lifeos-update --auto 2>&1) || fail "the timer's run failed because the repository was unreachable"
+[ -z "$out" ] || fail "the timer's run is not quiet when the repository is unreachable: $out"
 if lifeos-update >/dev/null 2>&1; then fail "manual update should fail when the repository is unreachable"; fi
 git -C /opt/lifeos remote set-url origin /srv/origin.git
 systemctl start lifeos-update.service

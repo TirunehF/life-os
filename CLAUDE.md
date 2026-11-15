@@ -96,12 +96,17 @@ anything a person sees.
 
 - Every push to `main` publishes `app/` to GitHub Pages as the demo
   (`.github/workflows/pages.yml`).
-- An install follows `main` of the repository it was cloned from:
-  `sudo lifeos-update` fetches it, restarts the service and rolls back if
-  `api/health` does not report the new commit. With automatic updates on (the
-  default) this also happens after every boot and every night at 04:15. So
-  **everything pushed to `main` goes live on the owner's machine within a
-  day**: keep `main` working, and never push anything you have not tested.
+- Every push to `main` also runs `.github/workflows/tests.yml`. When all
+  tests pass, its last job moves the branch `tested` to that commit. Never
+  push to `tested` yourself.
+- An install follows `tested` of the repository it was cloned from (`main`
+  if there is no such branch): `sudo lifeos-update` fetches it, restarts the
+  service and rolls back if `api/health` does not report the new commit. With
+  automatic updates on (the default) this happens every five minutes. So
+  **everything pushed to `main` goes live on the owner's machine within
+  minutes of the tests passing**: keep `main` working, and never push
+  anything you have not tested. The workflow does not run the Firefox check
+  or the installer test; those are yours to run.
 - A change under `deploy/` is not applied by an update. It needs
   `sudo /opt/lifeos/deploy/install.sh` on the machine, run by the owner.
 - Commit with a clear message that says what changed and why.

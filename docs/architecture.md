@@ -63,7 +63,7 @@ checkout to `/opt/lifeos` (root-owned), creates `/var/lib/lifeos` (owned by
 |------|------|
 | `lifeos.service` | The server. |
 | `lifeos-backup.timer` and `.service` | Nightly snapshot, `Persistent=true`. |
-| `lifeos-update.timer` and `.service` | An update check 90 seconds after each boot and every night at 04:15 (optional). |
+| `lifeos-update.timer` and `.service` | An update check every five minutes (optional). |
 
 Options are kept in `/etc/lifeos/lifeos.env`, which is also the units'
 `EnvironmentFile`. The snapshot time is a small drop-in file written by the
@@ -107,8 +107,8 @@ password; it only re-opens a session that already exists on that device.
 - **Root on the host** can read everything. So can anyone who can become root:
   keep `sudo` behind a password on the host.
 - **The repository is the update authority.** With automatic updates on,
-  whatever is on the tracked repository's `main` branch runs on the machine by
-  the next night, and `lifeos-update` itself runs as root. Protect the GitHub
+  whatever passes the tests on the tracked repository's `main` branch runs on
+  the machine within minutes, and `lifeos-update` itself runs as root. Protect the GitHub
   account (two-factor sign-in), or install with `--no-auto-update`.
 - **The setup window.** Until a password is set, the first visitor sets it.
   This includes other software on the host itself, which can reach the
@@ -120,10 +120,15 @@ password; it only re-opens a session that already exists on that device.
 
 ## Updates and rollback
 
-`lifeos-update` fetches `origin/main`, refuses anything that is not a
-fast-forward, moves the checkout, restarts the service and polls
-`api/health` until it reports the new commit. If that does not happen within
-30 seconds it moves the checkout back and restarts again. Unit files and the
+`lifeos-update` asks the repository where its branches `tested` and `main`
+are (one `git ls-remote`) and follows `tested`, or `main` when there is no
+`tested`. The Tests workflow moves `tested` to a commit of `main` once every
+test has passed for it, so a push that breaks a test never reaches a machine.
+The command refuses anything that is not a fast-forward, moves the checkout,
+restarts the service and polls `api/health` until it reports the new commit.
+If that does not happen within 30 seconds it moves the checkout back and
+restarts again, and the timer leaves that commit alone from then on. The timer
+runs every five minutes and logs nothing unless it changes something. Unit files and the
 installed commands are copies made by `install.sh`; when an update changes
 `deploy/`, the update says so and `install.sh` has to be run again.
 

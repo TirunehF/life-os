@@ -7,4 +7,9 @@ After=network-online.target lifeos.service
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/lifeos-update --auto
+# It runs every five minutes and usually finds nothing: keep that out of the
+# journal. What the command does print (an update, a rollback, an error) is
+# logged as a notice.
+SyslogLevel=notice
+LogLevelMax=notice
 TimeoutStartSec=15min
