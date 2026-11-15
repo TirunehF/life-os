@@ -80,23 +80,13 @@ a full-screen app named Life OS.
 ## Backups
 
 A snapshot of the database is taken every night (03:30 unless you pass
-`--backup-time`), as `lifeos-YYYY-MM-DD.db`. The last 30 daily and 12 monthly
-snapshots are kept.
+`--backup-time`), as `lifeos-YYYY-MM-DD.db` in `/var/lib/lifeos/backups`. The
+last 30 daily and 12 monthly snapshots are kept.
 
-By default they go to an external disk if exactly one is mounted, and
-otherwise to `/var/lib/lifeos/backups`, on the same disk as the data. That
-protects you from mistakes and from a damaged database, not from a dead disk.
-To use another disk:
-
-```sh
-sudo /opt/lifeos/deploy/install.sh --backup-dir /mnt/your-disk/lifeos-backups
-```
-
-A disk formatted as exFAT, FAT or NTFS has no file permissions; the installer
-then tells you the mount options that keep the snapshots private.
-
-You can also download everything from the app at any time: Settings, Schema
-and data, "Export everything (JSON)".
+The snapshots are on the same disk as the data. That protects you from
+mistakes and from a damaged database, not from a dead disk. For a copy
+somewhere else, download everything from the app now and then: Settings,
+Schema and data, "Export everything (JSON)".
 
 ```sh
 sudo systemctl start lifeos-backup          # take a snapshot now

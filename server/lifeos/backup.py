@@ -1,7 +1,8 @@
 """Nightly snapshot:  python -m lifeos.backup
 
-Takes a consistent copy of the database with SQLite's backup API into
-LIFEOS_BACKUP_DIR as lifeos-YYYY-MM-DD.db, checks it, then prunes old copies:
+Takes a consistent copy of the database with SQLite's backup API into the
+"backups" folder next to it, as lifeos-YYYY-MM-DD.db, checks it, then prunes
+old copies:
 the newest 30 daily snapshots are kept, plus the first snapshot of each of
 the newest 12 months.
 """
@@ -65,7 +66,7 @@ def snapshot(data_dir, backup_dir, today=None):
 def main():
     os.umask(0o077)
     config = Config.from_env()
-    backup_dir = os.environ.get("LIFEOS_BACKUP_DIR") or os.path.join(config.data_dir, "backups")
+    backup_dir = os.path.join(config.data_dir, "backups")
     name, size, removed = snapshot(config.data_dir, backup_dir)
     kept = len([n for n in os.listdir(backup_dir) if NAME_RE.match(n)])
     print("Snapshot %s written to %s (%d bytes, integrity ok). Keeping %d, removed %d."

@@ -77,17 +77,6 @@ grep -q '^LIFEOS_BACKUP_TIME=01:15$' /etc/lifeos/lifeos.env || fail "options are
 api -b "$token" http://127.0.0.1:8787/api/data | grep -q 'survives everything' || fail "data or session lost by a re-install"
 echo "ok"
 
-step "A backup folder elsewhere on the system disk"
-mkdir -p /srv/backups-parent
-/opt/lifeos/deploy/install.sh --backup-dir /srv/backups-parent/lifeos >/dev/null
-[ "$(stat -c '%U:%G %a' /srv/backups-parent/lifeos)" = "lifeos:lifeos 700" ] || fail "custom backup folder ownership"
-systemctl start lifeos-backup.service
-ls /srv/backups-parent/lifeos | grep -q '^lifeos-.*\.db$' || fail "no snapshot in the custom folder"
-grep -q '^ReadWritePaths=/srv/backups-parent/lifeos$' /etc/systemd/system/lifeos-backup.service.d/10-backup-dir.conf || fail "drop-in for the backup folder"
-/opt/lifeos/deploy/install.sh --backup-dir /var/lib/lifeos/backups >/dev/null
-[ ! -e /etc/systemd/system/lifeos-backup.service.d/10-backup-dir.conf ] || fail "drop-in not removed"
-echo "ok"
-
 step "lifeos-update: nothing new"
 lifeos-update
 

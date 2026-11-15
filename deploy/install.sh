@@ -26,9 +26,6 @@ usage() {
   cat <<'EOF'
 Usage: sudo ./deploy/install.sh [options]
 
-  --backup-dir PATH|auto   Where the nightly snapshots go. "auto" (the default on a
-                           first install) uses an attached external disk if exactly
-                           one is mounted, otherwise /var/lib/lifeos/backups.
   --backup-time HH:MM      When the nightly snapshot runs (default 03:30).
   --port N                 Local port (default 8787). The server always listens on
                            127.0.0.1 only.
@@ -50,10 +47,9 @@ note() { printf '    %s\n' "$*"; }
 die()  { printf '\nError: %s\n' "$*" >&2; exit 1; }
 
 # ---------- options ----------
-BACKUP_DIR="" BACKUP_TIME="" PORT="" ALLOWED_HOSTS="" REPO_URL="" AUTO_UPDATE=""
+BACKUP_TIME="" PORT="" ALLOWED_HOSTS="" REPO_URL="" AUTO_UPDATE=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --backup-dir)     BACKUP_DIR=${2:?--backup-dir needs a value}; shift 2 ;;
     --backup-time)    BACKUP_TIME=${2:?--backup-time needs a value}; shift 2 ;;
     --port)           PORT=${2:?--port needs a value}; shift 2 ;;
     --allowed-hosts)  ALLOWED_HOSTS=${2:?--allowed-hosts needs a value}; shift 2 ;;
@@ -81,7 +77,6 @@ SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 old_value() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 || true; }
 PORT=${PORT:-$(old_value LIFEOS_PORT)};                   PORT=${PORT:-8787}
 ALLOWED_HOSTS=${ALLOWED_HOSTS:-$(old_value LIFEOS_ALLOWED_HOSTS)}
-BACKUP_DIR=${BACKUP_DIR:-$(old_value LIFEOS_BACKUP_DIR)}; BACKUP_DIR=${BACKUP_DIR:-auto}
 BACKUP_TIME=${BACKUP_TIME:-$(old_value LIFEOS_BACKUP_TIME)}; BACKUP_TIME=${BACKUP_TIME:-03:30}
 AUTO_UPDATE=${AUTO_UPDATE:-$(old_value LIFEOS_AUTO_UPDATE)}; AUTO_UPDATE=${AUTO_UPDATE:-yes}
 
@@ -89,8 +84,6 @@ case "$PORT" in ''|*[!0-9]*) die "--port must be a number." ;; esac
 [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || die "--port must be between 1024 and 65535."
 printf '%s' "$BACKUP_TIME" | grep -Eq '^([01][0-9]|2[0-3]):[0-5][0-9]$' || die "--backup-time must look like 03:30."
 case "$ALLOWED_HOSTS" in *[!A-Za-z0-9.,:_-]*) die "--allowed-hosts may only contain host names and commas." ;; esac
-case "$BACKUP_DIR" in auto|/*) ;; *) die "--backup-dir must be an absolute path or \"auto\"." ;; esac
-case "$BACKUP_DIR" in *[[:space:]]*) die "--backup-dir must not contain spaces." ;; esac
 
 # ---------- user and folders ----------
 say "System user and folders"
@@ -151,68 +144,8 @@ chown -R root:root "$VENV"; chmod -R go+rX,go-w "$VENV"
 
 # ---------- backup folder ----------
 say "Backup folder"
-INTERNAL_BACKUPS=$DATA/backups
-BACKUP_NOTE=""
-fs_without_unix_permissions() { case "$1" in exfat|vfat|msdos|ntfs|ntfs3|fuseblk) return 0 ;; *) return 1 ;; esac; }
-
-if [ "$BACKUP_DIR" = auto ]; then
-  root_source=$(findmnt -n -o SOURCE / || true)
-  root_disk=$(lsblk -n -o PKNAME "$root_source" 2>/dev/null | head -n 1 || true)
-  candidates=""
-  while read -r target source fstype; do
-    case "$source" in /dev/*) ;; *) continue ;; esac
-    case "$target" in /|/boot|/boot/*|/snap/*|/var/lib/*|*\\x*) continue ;; esac
-    case "$fstype" in ext2|ext3|ext4|btrfs|xfs|f2fs|exfat|vfat|ntfs|ntfs3|fuseblk) ;; *) continue ;; esac
-    disk=$(lsblk -n -o PKNAME "$source" 2>/dev/null | head -n 1 || true)
-    [ -n "$disk" ] && [ "$disk" != "$root_disk" ] || continue
-    candidates="$candidates$target"$'\n'
-  done < <(findmnt --real -r -n -o TARGET,SOURCE,FSTYPE 2>/dev/null || true)
-  count=$(printf '%s' "$candidates" | grep -c . || true)
-  if [ "$count" -eq 1 ]; then
-    BACKUP_DIR=$(printf '%s' "$candidates" | head -n 1)/lifeos-backups
-    note "found one external disk: snapshots go to $BACKUP_DIR"
-  else
-    BACKUP_DIR=$INTERNAL_BACKUPS
-    if [ "$count" -eq 0 ]; then
-      BACKUP_NOTE="No external disk is mounted, so snapshots stay on the same disk as the data. They protect against mistakes and a damaged database, not against a dead disk."
-    else
-      BACKUP_NOTE="Several external disks are mounted; pick one with --backup-dir. Until then snapshots stay on the same disk as the data."
-    fi
-  fi
-fi
-
-BACKUP_MOUNT=""
-if [ "$BACKUP_DIR" != "$INTERNAL_BACKUPS" ]; then
-  parent=$(dirname "$BACKUP_DIR")
-  [ -d "$parent" ] || die "$parent does not exist. Mount the disk first."
-  fstype=$(findmnt -n -o FSTYPE -T "$parent")
-  mount_point=$(findmnt -n -o TARGET -T "$parent")
-  if fs_without_unix_permissions "$fstype"; then
-    # exFAT, FAT and NTFS have no owners or modes: the mount options must provide them.
-    options=,$(findmnt -n -o OPTIONS -T "$parent"),
-    uid=$(id -u "$SERVICE_USER")
-    if printf '%s' "$options" | grep -q ",uid=$uid," && printf '%s' "$options" | grep -Eq ',(umask=0?077|dmask=0?077),'; then
-      mkdir -p "$BACKUP_DIR"
-    else
-      uuid=$(findmnt -n -o UUID -T "$parent" || true)
-      BACKUP_NOTE="$mount_point is $fstype, which has no file permissions, and it is not mounted for $SERVICE_USER only. Snapshots stay in $INTERNAL_BACKUPS until you mount it like this in /etc/fstab and run the installer again:
-      UUID=${uuid:-<uuid>}  $mount_point  $fstype  uid=$SERVICE_USER,gid=$SERVICE_USER,umask=0077,nofail  0  0"
-      BACKUP_DIR=$INTERNAL_BACKUPS
-    fi
-  else
-    install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 700 "$BACKUP_DIR"
-  fi
-  if [ "$BACKUP_DIR" != "$INTERNAL_BACKUPS" ]; then
-    [ "$mount_point" = / ] || BACKUP_MOUNT=$mount_point
-    runuser -u "$SERVICE_USER" -- test -w "$BACKUP_DIR" || die "$SERVICE_USER cannot write to $BACKUP_DIR."
-    if runuser -u nobody -- test -r "$BACKUP_DIR" 2>/dev/null; then
-      die "$BACKUP_DIR is readable by other users; it must be readable by $SERVICE_USER only."
-    fi
-  fi
-fi
-if [ "$BACKUP_DIR" = "$INTERNAL_BACKUPS" ]; then
-  install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 700 "$BACKUP_DIR"
-fi
+BACKUP_DIR=$DATA/backups
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 700 "$BACKUP_DIR"
 note "snapshots: $BACKUP_DIR, every night at $BACKUP_TIME, 30 daily and 12 monthly kept"
 
 # ---------- settings ----------
@@ -223,7 +156,6 @@ cat > "$ENV_FILE" <<EOF
 # installer again with options; see: sudo $CODE/deploy/install.sh --help
 LIFEOS_PORT=$PORT
 LIFEOS_DATA=$DATA
-LIFEOS_BACKUP_DIR=$BACKUP_DIR
 LIFEOS_BACKUP_TIME=$BACKUP_TIME
 LIFEOS_ALLOWED_HOSTS=$ALLOWED_HOSTS
 LIFEOS_AUTO_UPDATE=$AUTO_UPDATE
@@ -236,26 +168,14 @@ for unit in lifeos.service lifeos-backup.service lifeos-backup.timer lifeos-upda
   install -m 644 "$CODE/deploy/systemd/$unit" "$UNIT_DIR/$unit"
 done
 
-install -d -m 755 "$UNIT_DIR/lifeos-backup.timer.d" "$UNIT_DIR/lifeos-backup.service.d"
+install -d -m 755 "$UNIT_DIR/lifeos-backup.timer.d"
 cat > "$UNIT_DIR/lifeos-backup.timer.d/10-time.conf" <<EOF
 # Written by deploy/install.sh (--backup-time).
 [Timer]
 OnCalendar=
 OnCalendar=*-*-* $BACKUP_TIME:00
 EOF
-if [ "$BACKUP_DIR" = "$INTERNAL_BACKUPS" ]; then
-  rm -f "$UNIT_DIR/lifeos-backup.service.d/10-backup-dir.conf"
-else
-  {
-    echo "# Written by deploy/install.sh (--backup-dir)."
-    echo "[Unit]"
-    echo "RequiresMountsFor=$BACKUP_DIR"
-    # Fail loudly, instead of writing next to the mount point, if the disk is missing.
-    [ -z "$BACKUP_MOUNT" ] || echo "AssertPathIsMountPoint=$BACKUP_MOUNT"
-    echo "[Service]"
-    echo "ReadWritePaths=$BACKUP_DIR"
-  } > "$UNIT_DIR/lifeos-backup.service.d/10-backup-dir.conf"
-fi
+rm -rf "$UNIT_DIR/lifeos-backup.service.d"   # written by earlier versions of this installer
 
 install -m 755 "$CODE/deploy/lifeos-update" "$SBIN/lifeos-update"
 install -m 700 "$CODE/deploy/lifeos-reset-password" "$SBIN/lifeos-reset-password"
@@ -298,11 +218,9 @@ Life OS is installed.
 
   Code      $CODE  (commit $(git -C "$CODE" rev-parse --short HEAD), read-only for the service)
   Data      $DATA  (only the "$SERVICE_USER" user can read it)
-  Snapshots $BACKUP_DIR  (nightly at $BACKUP_TIME)
+  Snapshots $BACKUP_DIR  (nightly at $BACKUP_TIME, on the same disk as the data)
   Service   systemctl status lifeos
-${BACKUP_NOTE:+
-  $BACKUP_NOTE
-}${NET_NOTE:+
+${NET_NOTE:+
   $NET_NOTE
 }
 Next steps

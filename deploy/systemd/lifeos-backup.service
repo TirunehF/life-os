@@ -12,8 +12,7 @@ Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/lifeos/venv/bin/python -m lifeos.backup
 UMask=0077
 
-# Same lock-down as the service, and no network at all. The installer adds
-# the backup folder to ReadWritePaths when it is outside /var/lib/lifeos.
+# Same lock-down as the service, and no network at all.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

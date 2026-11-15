@@ -5,7 +5,7 @@ phone / laptop --Tailscale--> tailscale serve (HTTPS) --> 127.0.0.1:8787
                                                           Life OS server (user: lifeos)
                                                           |- serves app/ (the front-end)
                                                           '- /api --> /var/lib/lifeos/lifeos.db
-                                                                       '- nightly snapshot --> backup folder
+                                                                       '- nightly snapshot --> /var/lib/lifeos/backups
 GitHub repository (public, code only) --> GitHub Pages: the same front-end in demo mode
                                       '-> an install pulls updates from it
 ```
@@ -66,8 +66,8 @@ checkout to `/opt/lifeos` (root-owned), creates `/var/lib/lifeos` (owned by
 | `lifeos-update.timer` and `.service` | An update check 90 seconds after each boot and every night at 04:15 (optional). |
 
 Options are kept in `/etc/lifeos/lifeos.env`, which is also the units'
-`EnvironmentFile`. Things that depend on options (snapshot time, an external
-backup folder) are small drop-in files written by the installer.
+`EnvironmentFile`. The snapshot time is a small drop-in file written by the
+installer.
 
 ## What the privacy rests on
 
@@ -132,9 +132,8 @@ installed commands are copies made by `install.sh`; when an update changes
 `python -m lifeos.backup` opens the live database, copies it with SQLite's
 online backup API to `lifeos-YYYY-MM-DD.db.partial`, runs an integrity check
 on the copy and renames it into place. Then it prunes: the newest 30 snapshots
-stay, and so does the first snapshot of each of the newest 12 months. When
-the backup folder is on another disk, the unit refuses to run if that disk is
-not mounted, rather than writing into the empty mount point.
+stay, and so does the first snapshot of each of the newest 12 months. The
+snapshots live in `/var/lib/lifeos/backups`, on the same disk as the data.
 
 ## HTTP interface
 
