@@ -330,7 +330,7 @@ async function serverMode(browser) {
   const today = await page.eval(todayISO);
   await page.click('.side .rb[data-n="4"]');
   await page.type('.side textarea[data-field="recap"]', 'Smoke test recap');
-  await page.type('.side input[data-enter="task-add-day"]', 'Smoke task');
+  await page.type('.side input[data-enter="plan-add"]', 'Smoke task');
   await page.press('Enter');
   await page.click('.side [data-action="ppl-add"]');
   await page.wait(`document.querySelector('.side input[data-field="people"]')`, 'a people row');
@@ -346,13 +346,48 @@ async function serverMode(browser) {
 
   /* edit */
   await page.type('.side textarea[data-field="recap"]', ', edited');
-  await page.click('.side .st[data-action="task-done"]');
+  await page.click('.side .pchip .pst[data-action="plan-toggle"]');
   await sleep(900);
   await page.saved();
   data = (await page.api('api/data')).body;
   assert(data.days[today].recap === 'Smoke test recap, edited', 'recap edited on the server');
   assert(Object.values(data.tasks)[0].status === 'done' && Object.values(data.tasks)[0].doneOn === today, 'task marked done on the server');
   page.check('edit the entry and the task');
+
+  /* the plan: a session is planned, placed in a part of the day, ticked into the sport log,
+     and something else is moved to tomorrow, which asks why */
+  const drag = (from, to) => page.eval(`(()=>{const a=document.querySelector(${JSON.stringify(from)}),b=document.querySelector(${JSON.stringify(to)});if(!a||!b)return false;const dt=new DataTransfer();a.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:dt}));b.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));b.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));a.dispatchEvent(new DragEvent('dragend',{bubbles:true}));return true;})()`);
+  const planKind = kind => page.eval(`(()=>{const s=document.querySelector('.side [data-change="plan-kind"]');s.value='${kind}';s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  const tomorrow = await page.eval(`(()=>{const [y,m,d]=${JSON.stringify(today)}.split('-').map(Number);const t=new Date(y,m-1,d+1);return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');})()`);
+  await planKind('sport');
+  await page.type('.side input[data-enter="plan-add"]', 'Running');
+  await page.press('Enter');
+  await planKind('people');
+  await page.type('.side input[data-enter="plan-add"]', 'Dinner out');
+  await page.press('Enter');
+  await page.wait(`document.querySelectorAll('.side .prow .pchip[draggable]').length===2`, 'the two planned items');
+  assert(await drag('.side .prow .pchip[draggable]', `.side .pband[data-drop="slot:${today}:e"]`), 'drag onto the evening');
+  await page.wait(`document.querySelector('.side .pband[data-drop$=":e"] .pchip')&&!document.getElementById('why').classList.contains('show')`, 'the session in the evening, with no question asked');
+  await page.click('.side .pband[data-drop$=":e"] .pchip .pst');
+  await page.wait(`document.querySelector('.side select[data-change="act-sport"]')?.value==='Running'`, 'the ticked session in the sport log');
+  assert(await drag('.side .prow .pchip[draggable]', `.cell[data-date="${tomorrow}"]`), 'drag onto tomorrow');
+  await page.wait(`document.getElementById('why').classList.contains('show')`, 'the question why');
+  await page.click('#why [data-v="Weather"]');
+  await page.wait(`!document.getElementById('why').classList.contains('show')&&document.querySelector('.side .pchip.ghost')`, 'the reason taken, a trace left on the day');
+  await page.saved();
+  data = (await page.api('api/data')).body;
+  const planned = Object.values(data.plan), logged = Object.values(data.plan_log), run = planned.find(x => x.kind === 'sport'), dinner = planned.find(x => x.kind === 'people');
+  assert(planned.length === 2 && run.title === 'Running' && run.date === today && run.part === 'e' && run.status === 'done', 'the session is planned, placed and done on the server');
+  assert(Object.keys(data.activities).length === 1 && data.activities[run.link].sport === 'Running' && data.activities[run.link].date === today, 'ticking it wrote the sport session it links to');
+  assert(dinner.date === tomorrow && dinner.status === 'planned', 'the other item moved to tomorrow');
+  const place = logged.find(l => l.kind === 'place'), move = logged.find(l => l.kind === 'move');
+  assert(logged.length === 2 && place.planId === run.id && place.reason === '' && place.to.part === 'e', 'placing was logged without a reason');
+  assert(move.planId === dinner.id && move.reason === 'Weather' && move.timing === 'day' && move.from.date === today && move.to.date === tomorrow, 'moving was logged with its reason');
+  const week = Object.values(data.periods).find(p => p.kind === 'week' && p.start <= today && p.end >= today);
+  assert(week && Number.isFinite(week.planAt) && Array.isArray(week.planBase), 'the week has a committed plan');
+  await page.click('.side [data-action="act-del"]');
+  await page.wait(`document.querySelectorAll('.side .pchip.done').length===1`, 'the session back to planned once its log row is gone');
+  page.check('plan, place, tick, move with a reason');
 
   /* the data survives a reload, and comes back from the server */
   await page.reload();
@@ -364,13 +399,15 @@ async function serverMode(browser) {
   await page.eval(`fetch('api/data/tasks/t_elsewhere',{method:'PUT',headers:{'X-LifeOS':'1','Content-Type':'application/json'},body:JSON.stringify({id:'t_elsewhere',title:'Added on the phone',description:'',status:'todo',priority:'none',area:'',plannedFor:${JSON.stringify(today)},doneOn:null,subtasks:[],createdAt:Date.now()})}).then(r=>r.status)`);
   await page.visibility('hidden');
   await page.visibility('visible');
-  await page.wait(`[...document.querySelectorAll('.side .tte')].some(e=>e.textContent==='Added on the phone')`, 'the task written by another device');
+  await page.wait(`[...document.querySelectorAll('.side .pchip .ptt')].some(e=>e.textContent==='Added on the phone')`, 'the task written by another device');
   page.check('refresh on becoming visible');
 
   /* delete */
   await page.click('.side [data-action="ppl-del"]');
-  await page.eval(`[...document.querySelectorAll('.side .trk')].find(e=>e.textContent.includes('Smoke task')).click()`);
+  await page.eval(`[...document.querySelectorAll('.side .pchip .ptt')].find(e=>e.textContent.includes('Smoke task')).click()`);
+  await page.click('#sheet [data-action="task-open"]');
   await page.click('#sheet [data-action="task-del"]');
+  await page.wait(`!document.querySelector('#sheet .sheet')`, 'the sheets to close');
   await page.saved();
   data = (await page.api('api/data')).body;
   assert(Object.keys(data.people_log).length === 0, 'people row deleted on the server');
@@ -397,7 +434,7 @@ async function serverMode(browser) {
   const file = await nextDownload();
   const exported = JSON.parse(readFileSync(file, 'utf8'));
   assert(/^life-os-\d{4}-\d\d-\d\d\.json$/.test(path.basename(file)), 'export file name: ' + path.basename(file));
-  assert(Object.keys(exported).length === 9 && exported.days[today].rating === 4, 'export holds the nine collections');
+  assert(Object.keys(exported).length === 11 && exported.days[today].rating === 4, 'export holds the eleven collections');
   const {result} = await page.cdp('Runtime.evaluate', {expression: `document.querySelector('input[data-import="__all"]')`});
   const before = page.requests.length;
   await page.cdp('DOM.setFileInputFiles', {files: [file], objectId: result.objectId});
@@ -601,6 +638,12 @@ async function demoMode(browser) {
   await page.eval(`document.fonts.ready`);
   assert(await page.eval(`document.fonts.check('15px "Instrument Sans"')&&document.fonts.check('20px "Material Symbols Outlined"')`), 'fonts load under a sub-path');
   await page.shot('demo-1-calendar');
+  assert(await page.eval(`document.querySelectorAll('.side .pbands .pband').length===3&&document.querySelectorAll('.side .pchip').length>=2`), 'the day editor shows the plan in three parts of the day');
+  await page.click('[data-action="cal-mode"]');
+  await page.wait(`document.querySelectorAll('.wblock[data-week] .wcard .wplan .pchip').length>=10&&document.querySelector('.ptray')`, 'the week view with the plan and its tray');
+  await page.shot('demo-1b-week');
+  await page.click('[data-action="cal-mode"]');
+  await page.wait(`document.querySelector('.mblock')`, 'the month view again');
   page.check('demo opens with example data');
 
   await page.click('[data-nav="review"]');
@@ -611,6 +654,11 @@ async function demoMode(browser) {
     await page.click(`.rvc[data-rvm="${key}"]`);
     await page.wait(`document.querySelector('#rvdock .dk-b').children.length>0`, 'review detail ' + key);
   }
+  assert(/^\d+%/.test(await page.eval(`document.querySelector('.rvc[data-rvm="tasks"] .v').textContent`)), 'last week shows how much of its plan was done');
+  await page.click('[data-action="rv-next"]');
+  await page.wait(`document.querySelectorAll('.pgrid7 .pday').length===7&&document.querySelector('.rvbox .ptray input[data-enter="plan-add"]')`, 'the plan for next week in this week’s review');
+  await page.click('[data-action="rv-prev"]');
+  await page.wait(`/Closed/.test(document.querySelector('.rv-head').textContent)`, 'last week again');
   await page.shot('demo-2-review-week');
   await page.click('[data-action="rv-kind"][data-k="month"]');
   await page.wait(`document.querySelector('.rvmonth')`, 'the month review');
@@ -618,7 +666,7 @@ async function demoMode(browser) {
   await page.click('[data-nav="tasks"]');
   await page.wait(`document.querySelectorAll('.trk').length>=8`, 'the task list');
   await page.shot('demo-4-tasks');
-  for (const v of ['columns', 'calendar', 'list']) await page.click(`[data-action="task-view"][data-v="${v}"]`);
+  for (const v of ['columns', 'list']) await page.click(`[data-action="task-view"][data-v="${v}"]`);
   await page.click('#gear');
   await page.wait(`document.querySelectorAll('.tile').length>=6`, 'the habits in Settings');
   assert(await page.eval(`![...document.querySelectorAll('.sec h2')].some(h=>h.textContent==='Security')`), 'no Security section in the demo');
@@ -633,7 +681,7 @@ async function demoMode(browser) {
   await page.click('.schema details > summary');
   await page.click('[data-action="export-all"]');
   const exported = JSON.parse(readFileSync(await nextDownload(), 'utf8'));
-  assert(Object.keys(exported).length === 9 && Object.values(exported.tasks).some(t => t.title === 'A change that is not kept'), 'export works in the demo');
+  assert(Object.keys(exported).length === 11 && Object.values(exported.tasks).some(t => t.title === 'A change that is not kept'), 'export works in the demo');
   await page.click('[data-action="backup-open"]');
   await page.type('#sheet [data-sk="pw"]', 'any password works here');
   await page.click('[data-action="backup-go"]');
@@ -655,7 +703,7 @@ async function demoMode(browser) {
   await page.wait(`!document.querySelector('.banner.demo')`, 'the banner to hide');
   await page.shot('demo-5-phone-calendar');
   await page.eval(`document.querySelector('.mblock .cell.today').click()`);
-  await page.wait(`document.querySelector('#sheet .editor')`, 'the day sheet on a phone');
+  await page.wait(`document.querySelector('#sheet .editor .pbands')`, 'the day sheet on a phone, with the plan');
   await page.shot('demo-6-phone-day');
   page.check('phone layout');
   await page.cdp('Emulation.clearDeviceMetricsOverride');

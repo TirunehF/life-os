@@ -269,7 +269,7 @@ try {
   await sleep(300);
   const envelope = JSON.parse(readFileSync(path.join(ff.downloads, backup), 'utf8'));
   const inside = JSON.parse(openBackup(envelope, PASSWORD));
-  assert(Object.keys(inside).length === 9 && Object.values(inside.days).some(d => d.recap === 'Written in Firefox'), 'the backup holds the data');
+  assert(Object.keys(inside).length === 11 && Object.values(inside.days).some(d => d.recap === 'Written in Firefox'), 'the backup holds the data');
   let opened = true;
   try { openBackup(envelope, 'not the password'); } catch (e) { opened = false; }
   assert(!opened, 'a wrong password must not open the backup');

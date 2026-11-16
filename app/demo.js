@@ -2,7 +2,7 @@
  * Life OS demo data
  *
  * LifeOSDemo.build(today, defaults) returns a complete, made-up dataset in the app's
- * export shape: {collection: {id: doc}} for all nine collections.
+ * export shape: {collection: {id: doc}} for all eleven collections.
  *
  *   today     'YYYY-MM-DD', the app's own idea of today
  *   defaults  {sportTypes, areas, theme}; copied into settings.main as they are
@@ -10,9 +10,10 @@
  * Pure: the result depends only on the arguments (and on the local time zone, which
  * turns calendar days into ms timestamps). It never reads the clock and never rolls
  * unseeded dice. Whatever happens on a calendar day (journal, habits, sport, people,
- * the review of its week) is a function of that date alone, so history stays put while
- * the 60-day window slides forward. Tasks and the two short habit ranges hang off the
- * current week instead and move once a week.
+ * the review of its week, what that week planned) is a function of that date alone, so
+ * history stays put while the 60-day window slides forward. Tasks and the two short habit
+ * ranges hang off the current week instead and move once a week, and so do the planned
+ * tasks, the event and the chores of this week and the next.
  *
  * Every person and event in here is invented.
  */
@@ -447,12 +448,18 @@
     ['Learn to bake sourdough', '', 'low', null, null, 'todo', -28]
   ];
 
+  /* ---------- plan ---------- */
+  const WHY = ['Tired', 'Work ran over', 'Weather', 'Something better', 'Overplanned', 'Others cancelled'];
+  const CHORES = ['Laundry', 'Groceries', 'Clean the flat', 'Water the plants'];
+  // meetings that were arranged ahead; a training partner is part of the session, not a plan of its own
+  const ARRANGED = new Set(MEET[0].concat(MEET[1]).map(x => x[1]).concat(['Band rehearsal']));
+
   /* ---------- putting it together ---------- */
   function build(today, defaults){
     if (!/^\d{4}-\d\d-\d\d$/.test(today)) throw new Error('LifeOSDemo.build: today must be YYYY-MM-DD');
     const cfg = JSON.parse(JSON.stringify(defaults || {}));
     const T = dayNo(today), first = T - 59, mon = monday(T);
-    const data = {days: {}, habits: {}, habit_log: {}, sports: {}, activities: {}, people_log: {}, tasks: {}, periods: {}, settings: {main: cfg}};
+    const data = {days: {}, habits: {}, habit_log: {}, sports: {}, activities: {}, people_log: {}, tasks: {}, periods: {}, plan: {}, plan_log: {}, settings: {main: cfg}};
     const longAgo = days => monthFirst(T - days);               // a month start well before the window
 
     // names and colours come from the defaults; ours are only preferences among them
@@ -512,6 +519,69 @@
     put(weekDoc(mon + 7, 'next', at(T, 7, 55)));
     put(monthDoc(monthFirst(monthFirst(T) - 1), true));
     put(monthDoc(monthFirst(T), false));
+
+    // plan: what each week set out to do, and what became of it. Sessions and meetings follow the
+    // same dice as the journal, so a ticked item always has its row. In a past week one session
+    // may have slipped a day, one may have been skipped, some just happened without a plan.
+    const partOf = h => h < 12 ? 'm' : h < 17 ? 'a' : 'e';
+    const planWeek = m => {
+      const id = weekId(m), key = id.slice(5), ws = isoOf(m), stamp = m > mon ? at(T, 7, 55) : at(m - 1, 19, 30), base = [];   // planned on the Sunday before
+      let seq = 0, k = 0, skipped = false;
+      const row = (rid, kind, title, n, part, extra) => {
+        const doc = Object.assign({id: rid, kind: kind, title: title, ref: null, week: ws, date: n == null ? null : isoOf(n), part: part || null, order: ++seq, time: null,
+          status: 'planned', link: null, createdAt: stamp, updatedAt: stamp}, extra || {});
+        data.plan[rid] = doc;
+        return doc;
+      };
+      const keep = (r, n, part) => { base.push({id: r.id, ref: r.ref || null, date: n == null ? null : isoOf(n), part: part || null}); };
+      const note = (lid, r, kind, from, to, when) => {
+        data.plan_log[lid] = {id: lid, planId: r.id, title: r.title, week: ws, kind: kind, from: from, to: to, timing: 'day', reason: WHY[floor(one('why', m + lid.length) * WHY.length)], at: when};
+      };
+      const slip = 1 + floor(one('slip', m) * 3), loose = one('loose', m) < .45 ? 1 + floor(one('which', m) * 3) : 0;
+      for (let n = m; n < m + 7; n++) {
+        const iso = isoOf(n), d = n - m + 1, s = session(n), act = data.activities['a_' + iso];
+        if (s) {
+          k++;
+          if (!(k === loose && n < T)) {                           // otherwise: a session nobody planned
+            const part = partOf(s.hour), r = row('pl_' + key + '_s' + d, 'sport', s.sport, n, part, act ? {status: 'done', link: act.id, updatedAt: act.createdAt} : null);
+            if (k === slip && d > 1 && n <= T && !session(n - 1)) { // first planned for the day before
+              keep(r, n - 1, part);
+              note('pg_' + key + '_m' + d, r, 'move', {date: isoOf(n - 1), part: part}, {date: iso, part: part}, at(n - 1, 17, 20 + d));
+            } else keep(r, n, part);
+          }
+        } else if (!skipped && n < T && d > 1 && !slump(n) && (one('skip', n) < .5 || d === 6)) {
+          skipped = true;
+          const r = row('pl_' + key + '_x' + d, 'sport', BY_DAY[dow(n)][0], n, 'e', {status: 'skipped', updatedAt: at(n, 19, 5)});
+          keep(r, n, 'e');
+          note('pg_' + key + '_x' + d, r, 'skip', {date: iso, part: 'e'}, null, at(n, 19, 5));
+        }
+        if (!coreOf(n)) company(n).forEach((p, i) => {
+          if (!ARRANGED.has(p[1]) || (n < T && p[1] !== 'Band rehearsal' && one('spont', n) < .35)) return;   // some meetings just happen
+          const log = data.people_log['p_' + iso + '_' + (i + 1)], part = /breakfast|Brunch|market/.test(p[1]) ? 'm' : /unch|Coffee|Walk|Phone/.test(p[1]) ? 'a' : 'e';
+          keep(row('pl_' + key + '_p' + d + (i + 1), 'people', p[1] + ' with ' + p[0], n, part, log ? {status: 'done', link: log.id, updatedAt: log.createdAt} : null), n, part);
+        });
+      }
+      return {id: id, key: key, base: base, stamp: stamp, row: row, keep: keep};
+    };
+    for (let m = mon - 7; m >= first; m -= 7) { const w = planWeek(m), p = data.periods[w.id]; p.planBase = w.base; p.planAt = w.stamp; }
+    const cur = planWeek(mon), nxt = planWeek(mon + 7), idle = SPORTS.map(x => x.name).filter(x => weekPlan(mon).indexOf(x) < 0)[0] || SPORTS[0].name;
+    // this week's and next week's tasks: three in four already sit in a part of their day
+    TASKS.forEach((t, i) => {
+      if (t[3] == null || t[3] < 0 || t[3] > 13) return;
+      const w = t[3] < 7 ? cur : nxt, tid = 't_demo' + pad(i + 1), n = mon + t[3], part = [null, 'm', 'a', 'e'][i % 4];
+      const r = part ? w.row('pl_' + w.key + '_t' + pad(i + 1), 'task', t[0], n, part, {ref: tid}) : {id: 't:' + tid, ref: tid};
+      if (w === cur && t[6] < 0) cur.keep(r, n, part);            // on the list before the week began
+    });
+    // an evening out, a session still without a day, a call that came up during the week,
+    // and the chores that only help to order a day
+    cur.keep(cur.row('pl_' + cur.key + '_e1', 'event', 'Concert', mon + 4, 'e', {time: '20:00', status: mon + 4 < T ? 'done' : 'planned'}), mon + 4, 'e');
+    cur.keep(cur.row('pl_' + cur.key + '_f1', 'sport', idle, null, null), null, null);
+    cur.row('pl_' + cur.key + '_f2', 'people', 'Call Bramble', null, null, {createdAt: at(T, 7, 40), updatedAt: at(T, 7, 40)});
+    for (let n = mon; n <= T; n++) cur.row('pl_' + cur.key + '_r' + (n - mon + 1), 'routine', CHORES[n % CHORES.length], n, n % 2 ? 'm' : 'e', {status: n < T ? 'done' : 'planned'});
+    nxt.row('pl_' + nxt.key + '_e1', 'event', 'Film night', mon + 12, 'e', {time: '19:30'});
+    nxt.row('pl_' + nxt.key + '_f1', 'sport', idle, null, null);
+    data.periods[cur.id].planBase = cur.base;
+    data.periods[cur.id].planAt = cur.stamp;
     return data;
   }
 

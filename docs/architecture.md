@@ -25,6 +25,15 @@ All reading and writing goes through one object, `Store`. It has two modes:
 | `server` | the server's own answer to `/config.js` | Loaded once with `GET api/data`, written document by document through the API, reloaded when the tab becomes visible again. |
 | `demo` | `app/config.js` as published in the repository | Built in memory by `app/demo.js` from today's date. Nothing is saved, the API is never called. |
 
+**The plan.** What you set out to do is one list of items (the `plan`
+collection, plus every task that has a planned day), shown at two zoom levels:
+the week view and the review place an item on a day, the day editor places it
+in a part of the day. Both read the same index (`planIdx()`, rebuilt after
+every write), so nothing is synchronised. Placing an item is logged silently
+in `plan_log`; moving it to another day or skipping it is logged and asks why.
+The plan a week started with is frozen on that week's `periods` document, and
+the review compares against it. `docs/data-format.md` has the fields.
+
 The mode is never guessed. If `config.js` is missing or the server cannot be
 reached, the page says so; it does not fall back to demo data that someone
 could type into by mistake. A real install does not serve `demo.js` at all.

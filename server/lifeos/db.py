@@ -11,7 +11,7 @@ import sqlite3
 
 COLLECTIONS = (
     "days", "habits", "habit_log", "sports", "activities",
-    "people_log", "tasks", "periods", "settings",
+    "people_log", "tasks", "periods", "plan", "plan_log", "settings",
 )
 ID_RE = re.compile(r"^[A-Za-z0-9_\-.~:@+]+$")
 MAX_ID_LEN = 200
@@ -82,7 +82,18 @@ _VIEWS = {
         ("id", "id"), ("kind", "$.kind"), ("start_date", "$.start"), ("end_date", "$.end"),
         ("intentions", "$.intentions"), ("worked", "$.worked"), ("didnt", "$.didnt"),
         ("why", "$.why"), ("change", "$.change"), ("plan", "$.plan"), ("review", "$.review"),
+        ("plan_base", "$.planBase"), ("plan_at", "$.planAt"),
         ("closed_at", "$.closedAt"), ("updated_at", "$.updatedAt"),
+    ]),
+    "v_plan": ("plan", [
+        ("id", "id"), ("kind", "$.kind"), ("title", "$.title"), ("ref", "$.ref"), ("week", "$.week"),
+        ("date", "$.date"), ("part", "$.part"), ("sort_order", "$.order"), ("time", "$.time"),
+        ("status", "$.status"), ("link", "$.link"), ("created_at", "$.createdAt"), ("updated_at", "$.updatedAt"),
+    ]),
+    "v_plan_log": ("plan_log", [
+        ("id", "id"), ("plan_id", "$.planId"), ("title", "$.title"), ("week", "$.week"), ("kind", "$.kind"),
+        ("from_date", "$.from.date"), ("from_part", "$.from.part"), ("to_date", "$.to.date"), ("to_part", "$.to.part"),
+        ("timing", "$.timing"), ("reason", "$.reason"), ("at", "$.at"),
     ]),
     "v_settings": ("settings", [
         ("id", "id"), ("sport_types", "$.sportTypes"), ("areas", "$.areas"), ("theme", "$.theme"),

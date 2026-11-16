@@ -414,7 +414,7 @@ class Data(ServerCase):
 
     def test_collection_and_id_validation(self):
         bad = [
-            ("/api/data/users/x", {"id": "x"}),                      # not one of the nine collections
+            ("/api/data/users/x", {"id": "x"}),                      # not one of the eleven collections
             ("/api/data/docs/x", {"id": "x"}),
             ("/api/data/tasks/a%20b", {"id": "a b"}),                # space
             ("/api/data/tasks/a%2Fb", {"id": "a/b"}),                # slash
@@ -492,7 +492,13 @@ class Data(ServerCase):
         self.c.post("/api/import", {
             "days": {"2026-01-05": {"date": "2026-01-05", "rating": 4, "core": True, "focus": "Deep work"}},
             "tasks": {"t_1": {"id": "t_1", "title": "One", "status": "done", "doneOn": "2026-01-05", "subtasks": [{"id": "a"}, {"id": "b"}]}},
-            "periods": {"week_2026-W02": {"id": "week_2026-W02", "kind": "week", "start": "2026-01-05", "end": "2026-01-11"}},
+            "periods": {"week_2026-W02": {"id": "week_2026-W02", "kind": "week", "start": "2026-01-05", "end": "2026-01-11",
+                                          "planBase": [{"id": "pl_1", "ref": None, "date": "2026-01-06", "part": "e"}], "planAt": 1767550000000}},
+            "plan": {"pl_1": {"id": "pl_1", "kind": "sport", "title": "Running", "ref": None, "week": "2026-01-05", "date": "2026-01-07",
+                              "part": "m", "order": 1, "time": None, "status": "done", "link": "a_1"}},
+            "plan_log": {"pg_1": {"id": "pg_1", "planId": "pl_1", "title": "Running", "week": "2026-01-05", "kind": "move",
+                                  "from": {"date": "2026-01-06", "part": "e"}, "to": {"date": "2026-01-07", "part": "m"},
+                                  "timing": "day", "reason": "Weather", "at": 1767700000000}},
         })
         con = sqlite3.connect(db.db_path(self.config.data_dir))
         self.addCleanup(con.close)
@@ -500,7 +506,11 @@ class Data(ServerCase):
         self.assertEqual(views, {"v_" + c for c in db.COLLECTIONS})
         self.assertEqual(con.execute("SELECT date, rating, core, focus FROM v_days").fetchall(), [("2026-01-05", 4, 1, "Deep work")])
         self.assertEqual(con.execute("SELECT id, status, done_on, subtask_count FROM v_tasks").fetchall(), [("t_1", "done", "2026-01-05", 2)])
-        self.assertEqual(con.execute("SELECT kind, start_date, end_date FROM v_periods").fetchall(), [("week", "2026-01-05", "2026-01-11")])
+        self.assertEqual(con.execute("SELECT kind, start_date, end_date, plan_at FROM v_periods").fetchall(), [("week", "2026-01-05", "2026-01-11", 1767550000000)])
+        self.assertEqual(con.execute("SELECT kind, title, week, date, part, status, link FROM v_plan").fetchall(),
+                         [("sport", "Running", "2026-01-05", "2026-01-07", "m", "done", "a_1")])
+        self.assertEqual(con.execute("SELECT plan_id, kind, from_date, from_part, to_date, to_part, timing, reason FROM v_plan_log").fetchall(),
+                         [("pl_1", "move", "2026-01-06", "e", "2026-01-07", "m", "day", "Weather")])
         self.assertEqual(con.execute("PRAGMA journal_mode").fetchone()[0], "wal")
         for view in views:
             con.execute("SELECT * FROM %s" % view).fetchall()

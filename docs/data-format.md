@@ -10,7 +10,7 @@ from another tool without reading the code. The same format is used by
 
 ## The export file
 
-One JSON object with nine keys, one per collection. Each collection is an
+One JSON object with eleven keys, one per collection. Each collection is an
 object that maps a document id to a document:
 
 ```json
@@ -23,6 +23,8 @@ object that maps a document id to a document:
   "people_log": {},
   "tasks":      {},
   "periods":    {},
+  "plan":       {},
+  "plan_log":   {},
   "settings":   {"main": {"sportTypes": [], "areas": [], "theme": {}}}
 }
 ```
@@ -69,7 +71,7 @@ node tools/open-backup.mjs life-os-backup-2026-03-09-1830.json export.json
 
 | Rule | Detail |
 |------|--------|
-| Collections | Exactly these nine names. Anything else is refused. |
+| Collections | Exactly these eleven names. Anything else is refused. |
 | Id characters | `^[A-Za-z0-9_\-.~:@+]+$`, at most 200 characters. No spaces, slashes or non-ASCII letters. |
 | Id and document agree | The key a document is stored under must equal the id derived from the document (next table). |
 | Document | A JSON object. Standard JSON only (no `NaN`, no `Infinity`), UTF-8. |
@@ -209,6 +211,8 @@ Several documents per day are fine.
 | `change` | text | What to change next time. |
 | `plan` | text | Notes written when planning the period. |
 | `review` | text | Free-form review notes from earlier versions; shown only when not empty. |
+| `planBase` | list | Weeks only: the week's plan as committed. Each entry: `{id, ref, date, part}`, the `id` of a `plan` document (or `t:` plus a task id for a task without one), the task id in `ref` or `null`, and where the item stood. |
+| `planAt` | timestamp or `null` | Weeks only: when the plan was committed. Missing means not committed. |
 | `closedAt` | timestamp or `null` | When the review was closed. `null` means open. |
 | `updatedAt` | timestamp | |
 
@@ -221,6 +225,61 @@ Weeks are ISO 8601 weeks: they start on Monday, and week 1 is the week that
 contains 4 January. The year in the id is the ISO week-year, which differs from
 the calendar year around New Year: Monday 29 December 2025 starts
 `week_2026-W01`. The week number always has two digits (`week_2026-W07`).
+
+A week's plan is committed when the review of the week before is closed, or
+otherwise the first time the app is opened in that week. Items that are not
+in `planBase` were added later; a week without `planAt` treats all its items
+as planned.
+
+### `plan`: what you set out to do
+
+One document per planned item: a sport session, time with people, a task, an
+event, or a routine chore. An item sits on a day or floats in its week, and
+within a day in a part of it or in none.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `id` | string | Required. |
+| `kind` | string | `sport`, `people`, `task`, `event` or `routine`. A routine chore only helps to order a day: it never appears in the week view, a review or the log. |
+| `title` | string | For `sport` the `name` of a sport. For `task` a copy of the task's title; the app shows the task's own. |
+| `ref` | string or `null` | For `task` the `id` of the task, otherwise `null`. |
+| `week` | date | The Monday of the week the item belongs to. Required, also when `date` is set. |
+| `date` | date or `null` | The day. `null` means "sometime this week". |
+| `part` | string or `null` | `m` (morning), `a` (afternoon), `e` (evening), or `null` for no part. |
+| `order` | integer | Position among the items of the same part; lower comes first. A fixed `time` sorts before it. |
+| `time` | string or `null` | `HH:MM`, only for things with a fixed time. |
+| `status` | string | `planned`, `done` or `skipped`. For a `task` only `skipped` is read from here; done comes from the task. |
+| `link` | string or `null` | The `id` of the `activities` or `people_log` document that was written when the item was ticked. |
+| `createdAt` | timestamp | |
+| `updatedAt` | timestamp | |
+
+A task with a `plannedFor` date counts as a planned item of that day even
+without a document here. The app writes one the first time the item is placed
+in a part, moved or skipped, and keeps `plannedFor` equal to `date` (a skipped
+task has `plannedFor: null`, so it does not show as overdue). There is at most
+one document per task.
+
+Ticking a `sport` item writes an `activities` document for that day and sport,
+ticking a `people` item a `people_log` document with the title as `activity`;
+`link` points at it. An activity or people entry that no item links to is
+shown as "not in the plan" in weeks that have a committed plan.
+
+### `plan_log`: every change to a planned item
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `id` | string | Required. |
+| `planId` | string | The `id` of the item. |
+| `title` | string | The item's title at that moment, so the entry reads on its own. |
+| `week` | date | The Monday of the week the item belonged to before the change. |
+| `kind` | string | `place` (put into a part, or onto a day from "sometime this week"), `move` (to another day, or back to "sometime this week"), `skip`, `restore` (a skipped item put back). |
+| `from` | `{date, part}` or `null` | Where it was. |
+| `to` | `{date, part}` or `null` | Where it went. |
+| `timing` | string | `ahead` (changed before its day), `day` (on its day) or `after`. |
+| `reason` | string | What got in the way. Asked for `move` and `skip`, empty until answered; always empty for `place` and `restore`. The app offers a fixed list but stores any text. |
+| `at` | timestamp | When the change was made. |
+
+Entries are only ever added. Reordering inside a part is not logged.
 
 ### `settings`: one document, `main`
 

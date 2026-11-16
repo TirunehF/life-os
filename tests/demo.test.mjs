@@ -28,7 +28,7 @@ function extractApp() {
     return i;
   };
   const a = find('const DAYS=['), b = find('function periodOf(', a);            // date helpers ... periodOf
-  const s0 = find('const SCHEMA={'), s1 = find('};', s0);                        // the nine collections
+  const s0 = find('const SCHEMA={'), s1 = find('};', s0);                        // the eleven collections
   const single = ['const slug=', 'const ICONS=', 'const DEFAULT_TYPES=', 'const DEFAULT_AREAS=', 'const FONTS=', 'const PRESETS=',
     'const STATUS=', 'const PRIO=', 'function docId('].map(s => lines[find(s)]);
   const names = 'toISO addDays dow weekStart addMonths isoWeek range periodOf slug ICONS DEFAULT_TYPES DEFAULT_AREAS FONTS PRESETS STATUS PRIO SCHEMA docId';
@@ -78,9 +78,9 @@ const fullWeeks = (from, to) => range(from, to).filter(iso => app.dow(iso) === 0
 
 /* ---------- the checks; each takes {today, data, next}, next being the data one day later ---------- */
 
-// 1. All nine collections; every key is a valid id and the id the app would derive.
+// 1. All eleven collections; every key is a valid id and the id the app would derive.
 function checkCollections({ data }) {
-  assert.equal(COLLS.length, 9);
+  assert.equal(COLLS.length, 11);
   assert.deepEqual(Object.keys(data).sort(), [...COLLS].sort());
   for (const c of COLLS) {
     assert.ok(isObj(data[c]), `${c} is an object of {id: doc}`);
@@ -324,8 +324,56 @@ function checkNoEmoji({ data }) {
   assert.equal(hit, null, hit ? `no emoji (found U+${hit[0].codePointAt(0).toString(16).toUpperCase()})` : '');
 }
 
+// 11. The plan: every item belongs to a week, what is ticked links to the row that was logged,
+//     every change points at an item, and the weeks up to this one have a committed plan.
+function checkPlan({ today, data }) {
+  const KINDS = ['sport', 'people', 'task', 'event', 'routine'], PARTS = ['m', 'a', 'e', null], thisWeek = app.periodOf('week', today);
+  const kinds = new Set();
+  for (const r of rows(data, 'plan')) {
+    assert.ok(KINDS.includes(r.kind) && ['planned', 'done', 'skipped'].includes(r.status) && PARTS.includes(r.part), `${r.id}: kind, status and part`);
+    assert.ok(r.title.trim() && Number.isFinite(r.order));
+    assert.equal(app.dow(r.week), 0, `${r.id}: week is a Monday`);
+    if (r.date !== null) assert.equal(app.weekStart(r.date), r.week, `${r.id}: its day lies in its week`);
+    if (r.time !== null) assert.match(r.time, /^\d\d:\d\d$/);
+    if (r.kind === 'task') assert.ok(data.tasks[r.ref] && data.tasks[r.ref].plannedFor === r.date, `${r.id}: its task is planned for the same day`);
+    else assert.equal(r.ref, null);
+    if (r.link !== null) {
+      const log = r.kind === 'sport' ? data.activities[r.link] : data.people_log[r.link];
+      assert.ok(log && log.date === r.date && r.status === 'done', `${r.id}: linked to what was logged that day`);
+      if (r.kind === 'sport') assert.equal(log.sport, r.title);
+    }
+    if (r.kind === 'sport') assert.ok(names(rows(data, 'sports')).includes(r.title), `${r.id}: "${r.title}" is a sport`);
+    if (r.date !== null && r.date > today) assert.equal(r.status, 'planned', `${r.id}: nothing ahead is ticked`);
+    kinds.add(r.kind);
+  }
+  assert.deepEqual([...kinds].sort(), [...KINDS].sort(), 'every kind of item is there');
+  assert.ok(rows(data, 'plan').some(r => r.date === null), 'something floats in its week');
+  assert.ok(rows(data, 'plan').some(r => r.date > today), 'something is planned ahead');
+  const links = rows(data, 'plan').map(r => r.link).filter(Boolean);
+  assert.equal(new Set(links).size, links.length, 'a logged row belongs to one item');
+  for (const l of rows(data, 'plan_log')) {
+    const r = data.plan[l.planId];
+    assert.ok(r, `${l.id}: its item exists`);
+    assert.ok(['place', 'move', 'skip', 'restore'].includes(l.kind) && ['ahead', 'day', 'after'].includes(l.timing) && typeof l.reason === 'string');
+    if (l.kind === 'move') assert.ok(l.from.date !== l.to.date && r.date === l.to.date, `${l.id}: the item sits where it was moved to`);
+    if (l.kind === 'skip') assert.equal(r.status, 'skipped');
+    if (l.kind === 'move' || l.kind === 'skip') assert.ok(l.reason.trim(), `${l.id}: says why`);
+  }
+  assert.ok(rows(data, 'plan_log').some(l => l.kind === 'move') || rows(data, 'plan_log').some(l => l.kind === 'skip'));
+  for (const p of rows(data, 'periods')) {
+    if (p.kind !== 'week') continue;
+    if (p.start > thisWeek.start) { assert.ok(!('planAt' in p), `${p.id}: a week ahead has no committed plan yet`); continue; }
+    assert.ok(Number.isFinite(p.planAt) && localDate(p.planAt) <= p.start, `${p.id}: its plan was committed before it began`);
+    assert.ok(Array.isArray(p.planBase) && p.planBase.length >= 1, `${p.id}: the committed plan has items`);
+    for (const q of p.planBase) {
+      assert.ok(q.ref ? data.tasks[q.ref] : data.plan[q.id], `${p.id}: ${q.id} of the committed plan exists`);
+      assert.ok(q.date === null || (q.date >= p.start && q.date <= p.end));
+    }
+  }
+}
+
 const CHECKS = [
-  ['1. nine collections, keyed by the ids the app derives', checkCollections],
+  ['1. eleven collections, keyed by the ids the app derives', checkCollections],
   ['2. sixty days of journal, nothing logged in the future', checkCoverage],
   ['3. deterministic, and history is stable from one day to the next', checkDeterminism],
   ['4. references and icons resolve', checkReferences],
@@ -334,7 +382,8 @@ const CHECKS = [
   ['7. tasks cover statuses, priorities, areas and dates', checkTasks],
   ['8. reviews: past weeks closed, this week open, last month closed', checkPeriods],
   ['9. settings are the defaults; no timestamp after today', checkSettingsAndTime],
-  ['10. no emoji', checkNoEmoji]
+  ['10. no emoji', checkNoEmoji],
+  ['11. the plan: items, links, changes and committed weeks', checkPlan]
 ];
 
 /* ---------- the tests ---------- */
