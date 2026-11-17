@@ -330,17 +330,21 @@ async function serverMode(browser) {
   const today = await page.eval(todayISO);
   await page.click('.side .rb[data-n="4"]');
   await page.type('.side textarea[data-field="recap"]', 'Smoke test recap');
-  await page.type('.side input[data-enter="plan-add"]', 'Smoke task');
+  await page.click(`.side .pband[data-drop="slot:${today}:m"] .pplus`);
+  await page.type('.side .pin input', 'Smoke task');
   await page.press('Enter');
-  await page.click('.side [data-action="ppl-add"]');
-  await page.wait(`document.querySelector('.side input[data-field="people"]')`, 'a people row');
+  assert(await page.eval(`!document.querySelector('.side .padd')`), 'the day has no separate add row');
+  await page.click('.side .ebox[data-at$=":people"] .ebh');
+  await page.type('.side input[data-enter="ent-add"][data-k="people"]', 'Smoke friend');
+  await page.press('Enter');
+  await page.wait(`document.activeElement===document.querySelector('.side input[data-scope="ppl"][data-field="activity"]')`, 'the people row added at once, the cursor on what you did');
   await sleep(900);                         // the typing debounce
   await page.saved();
   let data = (await page.api('api/data')).body;
   assert(data.days[today] && data.days[today].rating === 4 && data.days[today].recap === 'Smoke test recap', 'day entry created on the server');
   let tasks = Object.values(data.tasks);
   assert(tasks.length === 1 && tasks[0].title === 'Smoke task' && tasks[0].plannedFor === today, 'task created on the server');
-  assert(Object.keys(data.people_log).length === 1, 'people row created on the server');
+  assert(Object.keys(data.people_log).length === 1 && Object.values(data.people_log)[0].people === 'Smoke friend', 'people row created on the server');
   await page.shot('server-2-calendar');
   page.check('create a day entry, a task and a people row');
 
@@ -357,27 +361,31 @@ async function serverMode(browser) {
   /* the plan: a session is planned, placed in a part of the day, ticked into the sport log,
      and something else is moved to tomorrow, which asks why */
   const drag = (from, to) => page.eval(`(()=>{const a=document.querySelector(${JSON.stringify(from)}),b=document.querySelector(${JSON.stringify(to)});if(!a||!b)return false;const dt=new DataTransfer();a.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer:dt}));b.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:dt}));b.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));a.dispatchEvent(new DragEvent('dragend',{bubbles:true}));return true;})()`);
-  const planKind = kind => page.eval(`(()=>{const s=document.querySelector('.side [data-change="plan-kind"]');s.value='${kind}';s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  const planKind = kind => page.click(`.side .pin [data-action="plan-kind-pick"][data-v="${kind}"]`);
   const tomorrow = await page.eval(`(()=>{const [y,m,d]=${JSON.stringify(today)}.split('-').map(Number);const t=new Date(y,m-1,d+1);return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');})()`);
+  await page.click(`.side .pband[data-drop="slot:${today}:a"] .pl`);   // the part of the day itself takes a new item
   await planKind('sport');
-  await page.type('.side input[data-enter="plan-add"]', 'Running');
+  await page.type('.side .pin input', 'Running');
   await page.press('Enter');
   await planKind('people');
-  await page.type('.side input[data-enter="plan-add"]', 'Dinner out');
+  await page.type('.side .pin input', 'Dinner out');
   await page.press('Enter');
-  await page.wait(`document.querySelectorAll('.side .prow .pchip[draggable]').length===2`, 'the two planned items');
-  assert(await drag('.side .prow .pchip[draggable]', `.side .pband[data-drop="slot:${today}:e"]`), 'drag onto the evening');
+  await page.wait(`document.querySelectorAll('.side .pband[data-drop$=":a"] .pchip[draggable]').length===2`, 'the two items in the afternoon');
+  await page.press('Escape');
+  await page.wait(`!document.querySelector('.side .pin')`, 'Escape closes the new item');
+  assert(await drag('.side .pband[data-drop$=":a"] .pchip[draggable]', `.side .pband[data-drop="slot:${today}:e"]`), 'drag onto the evening');
   await page.wait(`document.querySelector('.side .pband[data-drop$=":e"] .pchip')&&!document.getElementById('why').classList.contains('show')`, 'the session in the evening, with no question asked');
   await page.click('.side .pband[data-drop$=":e"] .pchip .pst');
   await page.wait(`document.querySelector('.side select[data-change="act-sport"]')?.value==='Running'`, 'the ticked session in the sport log');
-  assert(await drag('.side .prow .pchip[draggable]', `.cell[data-date="${tomorrow}"]`), 'drag onto tomorrow');
+  assert(await drag('.side .pband[data-drop$=":a"] .pchip[draggable]', `.cell[data-date="${tomorrow}"]`), 'drag onto tomorrow');
   await page.wait(`document.getElementById('why').classList.contains('show')`, 'the question why');
   await page.click('#why [data-v="Weather"]');
   await page.wait(`!document.getElementById('why').classList.contains('show')&&document.querySelector('.side .pchip.ghost')`, 'the reason taken, a trace left on the day');
   await page.saved();
   data = (await page.api('api/data')).body;
-  const planned = Object.values(data.plan), logged = Object.values(data.plan_log), run = planned.find(x => x.kind === 'sport'), dinner = planned.find(x => x.kind === 'people');
-  assert(planned.length === 2 && run.title === 'Running' && run.date === today && run.part === 'e' && run.status === 'done', 'the session is planned, placed and done on the server');
+  const planned = Object.values(data.plan), logged = Object.values(data.plan_log), run = planned.find(x => x.kind === 'sport'), dinner = planned.find(x => x.kind === 'people'), smoke = planned.find(x => x.kind === 'task');
+  assert(smoke && smoke.date === today && smoke.part === 'm' && data.tasks[smoke.ref].plannedFor === today, 'the task added in the morning is planned there');
+  assert(planned.length === 3 && run.title === 'Running' && run.date === today && run.part === 'e' && run.status === 'done', 'the session is planned, placed and done on the server');
   assert(Object.keys(data.activities).length === 1 && data.activities[run.link].sport === 'Running' && data.activities[run.link].date === today, 'ticking it wrote the sport session it links to');
   assert(dinner.date === tomorrow && dinner.status === 'planned', 'the other item moved to tomorrow');
   const place = logged.find(l => l.kind === 'place'), move = logged.find(l => l.kind === 'move');
@@ -387,7 +395,13 @@ async function serverMode(browser) {
   assert(week && Number.isFinite(week.planAt) && Array.isArray(week.planBase), 'the week has a committed plan');
   await page.click('.side [data-action="act-del"]');
   await page.wait(`document.querySelectorAll('.side .pchip.done').length===1`, 'the session back to planned once its log row is gone');
-  page.check('plan, place, tick, move with a reason');
+  await page.click('.side .pband[data-drop$=":e"] .pchip .ptt');
+  await page.wait(`document.querySelector('.side .pband[data-drop$=":e"] .pmenu')&&!document.querySelector('#sheet .sheet')`, 'a small menu under the item, not a sheet');
+  await page.click('.side .pmenu [data-action="plan-part"][data-v="m"]');
+  await page.wait(`document.querySelector('.side .pband[data-drop$=":m"] .pmenu')`, 'the item and its menu moved to the morning');
+  await page.click('.side .plab');
+  await page.wait(`!document.querySelector('.side .pmenu')`, 'a click elsewhere closes the menu');
+  page.check('plan, place, tick, move with a reason, the item menu');
 
   /* the data survives a reload, and comes back from the server */
   await page.reload();
@@ -405,6 +419,7 @@ async function serverMode(browser) {
   /* delete */
   await page.click('.side [data-action="ppl-del"]');
   await page.eval(`[...document.querySelectorAll('.side .pchip .ptt')].find(e=>e.textContent.includes('Smoke task')).click()`);
+  await page.click('.side .pmenu [data-action="plan-open"]');
   await page.click('#sheet [data-action="task-open"]');
   await page.click('#sheet [data-action="task-del"]');
   await page.wait(`!document.querySelector('#sheet .sheet')`, 'the sheets to close');
@@ -639,10 +654,12 @@ async function demoMode(browser) {
   assert(await page.eval(`document.fonts.check('15px "Instrument Sans"')&&document.fonts.check('20px "Material Symbols Outlined"')`), 'fonts load under a sub-path');
   await page.shot('demo-1-calendar');
   assert(await page.eval(`document.querySelectorAll('.side .pbands .pband').length===3&&document.querySelectorAll('.side .pchip').length>=2`), 'the day editor shows the plan in three parts of the day');
-  await page.click('[data-action="cal-mode"]');
+  assert(await page.eval(`!document.querySelector('.mlabel')&&!document.querySelector('.calhead button[data-action="cal-mode"]')`), 'one month title, no separate mode button');
+  assert(await page.eval(`(()=>{const a=document.querySelector('.calhead .cal-nav').getBoundingClientRect(),b=document.querySelector('.calhead .tools').getBoundingClientRect();return Math.abs((a.top+a.bottom)/2-(b.top+b.bottom)/2)<8;})()`), 'the month title and the filters share one row');
+  await page.click('.cal-title');
   await page.wait(`document.querySelectorAll('.wblock[data-week] .wcard .wplan .pchip').length>=10&&document.querySelector('.ptray')`, 'the week view with the plan and its tray');
   await page.shot('demo-1b-week');
-  await page.click('[data-action="cal-mode"]');
+  await page.click('.cal-title');
   await page.wait(`document.querySelector('.mblock')`, 'the month view again');
   page.check('demo opens with example data');
 
@@ -705,6 +722,20 @@ async function demoMode(browser) {
   await page.eval(`document.querySelector('.mblock .cell.today').click()`);
   await page.wait(`document.querySelector('#sheet .editor .pbands')`, 'the day sheet on a phone, with the plan');
   await page.shot('demo-6-phone-day');
+  await page.click('#sheet .pband[data-drop$=":m"] .pl');
+  await page.wait(`document.activeElement===document.querySelector('#sheet .pin input')`, 'typing straight into the morning');
+  await page.shot('demo-6b-phone-day-add');
+  await page.press('Escape');
+  await page.wait(`!document.querySelector('#sheet .pin')&&document.querySelector('#sheet .sheet')`, 'Escape closes the new item, not the day');
+  await page.click('#sheet .pband .pchip .ptt');
+  await page.wait(`document.querySelector('#sheet .pmenu')&&document.querySelectorAll('#sheet .sheet').length===1`, 'the item menu inside the day sheet');
+  await page.shot('demo-6c-phone-day-menu');
+  const sessions = await page.eval(`document.querySelectorAll('#sheet [data-change="act-sport"]').length`);
+  await page.click('#sheet .ebox[data-at$=":sport"] .ebh');
+  await page.type('#sheet input[data-enter="ent-add"][data-k="sport"]', 'Climbing');
+  await page.press('Enter');
+  await page.wait(`document.querySelectorAll('#sheet [data-change="act-sport"]').length===${sessions + 1}&&document.activeElement.matches('#sheet input[data-scope="act"][data-field="note"]')&&document.activeElement.value===''`, 'the session added at once, the cursor on its note');
+  await page.shot('demo-6d-phone-day-sport');
   page.check('phone layout');
   await page.cdp('Emulation.clearDeviceMetricsOverride');
 }

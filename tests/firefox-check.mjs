@@ -233,6 +233,30 @@ try {
   await ff.shot('firefox-2-day');
   ff.check('rate a day and write a recap');
 
+  /* the plan by touch: a part of the day takes a new item, the kind is picked without losing the
+     field, and the item opens a small menu that moves it to the evening */
+  await ff.tap('#sheet .pband[data-drop$=":m"] .pl');
+  await ff.wait(`document.activeElement===document.querySelector('#sheet .pin input')`, 'the field in the morning');
+  await ff.tap('#sheet .pin [data-action="plan-kind-pick"][data-v="sport"]');
+  await ff.wait(`document.activeElement===document.querySelector('#sheet .pin input[data-kind="sport"]')`, 'the field still focused after picking the kind');
+  await ff.type('#sheet .pin input', 'Swimming');
+  await ff.wait(`document.querySelector('#sheet .pband[data-drop$=":m"] .pchip')`, 'the session in the morning');
+  await ff.tap('#sheet .plab');
+  await ff.wait(`!document.querySelector('#sheet .pin')`, 'a tap elsewhere closes the empty field');
+  await ff.tap('#sheet .pband[data-drop$=":m"] .pchip .ptt');
+  await ff.wait(`document.querySelector('#sheet .pmenu')&&document.querySelectorAll('#sheet .sheet').length===1`, 'the item menu, no second sheet');
+  await ff.shot('firefox-2b-plan-menu');
+  await ff.tap('#sheet .pmenu [data-action="plan-part"][data-v="e"]');
+  await ff.wait(`document.querySelector('#sheet .pband[data-drop$=":e"] .pmenu')`, 'the item moved to the evening');
+  await sleep(300);
+  await ff.wait(`document.getElementById('status').classList.contains('ok')`, 'status "Saved"');
+  const swim = await ff.eval(`fetch('api/data',{cache:'no-store'}).then(r=>r.json()).then(d=>Object.values(d.plan).find(x=>x.title==='Swimming'))`);
+  assert(swim && swim.kind === 'sport' && swim.date === today && swim.part === 'e', 'the planned session reached the server: ' + JSON.stringify(swim));
+  await ff.tap('#sheet .ebox[data-at$=":people"] .ebh');
+  await ff.type('#sheet input[data-enter="ent-add"][data-k="people"]', 'Ana\uE007');
+  await ff.wait(`document.activeElement===document.querySelector('#sheet input[data-scope="ppl"][data-field="activity"]')`, 'the people row added at once');
+  ff.check('plan an item in a part of the day and move it from its menu, add people');
+
   /* lock, then unlock by drawing the pattern with a finger */
   await ff.eval(`fetch('api/auth/lock',{method:'POST',headers:{'X-LifeOS':'1'}}).then(r=>r.status)`);
   await ff.reload();
