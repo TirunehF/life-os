@@ -696,10 +696,15 @@ async function demoMode(browser) {
   await page.click('[data-nav="tasks"]');
   await page.wait(`document.querySelectorAll('.trk').length>=8`, 'the task list');
   await page.click('.tgroup .trk:not(.sub)');
-  await page.wait(`document.querySelector('.tgroup .trk.open + .tdet .tfr')&&!document.querySelector('#sheet .sheet')&&!document.querySelector('.tdet select')`, 'a task opens in place, without a sheet or drop-downs');
-  await page.click('.tgroup .tdet .tfr[aria-label="Priority"] [data-v="high"]');
-  await page.wait(`document.querySelector('.tgroup .tdet .tfr[aria-label="Priority"] [data-v="high"].on')`, 'the priority set in place');
+  await page.wait(`document.querySelector('.tgroup .trk.open + .tdet .tpb[data-f="status"]')&&!document.querySelector('#sheet .sheet')&&!document.querySelector('.pop.open')`, 'a task opens in place, showing only the values it has');
+  await page.click('.tgroup .trk.open .tpb[data-f="priority"]');
+  await page.wait(`document.querySelectorAll('.pop.open').length===1&&document.activeElement.matches('.pop.open .pt')`, 'the priority tag opens a small menu, focused');
   await page.shot('demo-4-tasks');
+  await page.click('.pop.open .pt[data-v="low"]');
+  await page.wait(`!document.querySelector('.pop.open')&&document.querySelector('.tgroup .trk.open .tpb[data-f="priority"] .tag.pr')`, 'the priority chosen, the menu closed');
+  await page.click('.tgroup .trk.open .tpb[data-f="area"]');
+  await page.click('h1');
+  await page.wait(`!document.querySelector('.pop.open')`, 'a click elsewhere closes the menu');
   await page.click('[data-action="task-view"][data-v="columns"]');
   await page.click('.kcard');
   await page.wait(`document.querySelector('.kcard.open + .tdet.card')&&!document.querySelector('#sheet .sheet')`, 'a card opens in place in its column');
