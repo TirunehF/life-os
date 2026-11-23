@@ -5,7 +5,8 @@
 
    tests/smoke.mjs is the thorough test and drives Chrome. This one covers
    what could differ in Firefox, at phone size: the setup screen, drawing the
-   pattern by touch, saving an entry, the lock and unlocking, and the demo.
+   pattern by touch, the day as a page with its rows, holds and swipes, saving
+   an entry, the lock and unlocking, and the demo.
    It fails on any console error or uncaught exception.
 
    Needs Node 22+, Python 3 and Firefox (FIREFOX=/path/to/firefox to choose).
@@ -55,6 +56,7 @@ class Firefox {
       'user_pref("browser.download.folderList", 2);',
       'user_pref("browser.download.useDownloadDir", true);',
       'user_pref("browser.download.alwaysOpenPanel", false);',
+      'user_pref("dom.w3c_touch_events.enabled", 1);',     // touch events, as on a phone
     ].join('\n') + '\n');
     const port = await freePort();
     const proc = spawn(findFirefox(), ['--headless', '--no-remote', '--profile', profile, '--remote-debugging-port', String(port), 'about:blank'],
@@ -141,6 +143,21 @@ class Firefox {
     await this.gesture([{x: r.left + r.width / 2, y: r.top + r.height / 2}], pointerType);
   }
 
+  /* Press and hold with a finger. */
+  async hold(selector) {
+    const r = await this.rect(selector);
+    const actions = [{type: 'pointerMove', x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}, {type: 'pointerDown', button: 0},
+      {type: 'pause', duration: 700}, {type: 'pointerUp', button: 0}];
+    await this.send('input.performActions', {context: this.context, actions: [{type: 'pointer', id: 'touch1', parameters: {pointerType: 'touch'}, actions}]});
+    await this.send('input.releaseActions', {context: this.context});
+  }
+
+  /* Drag a finger from the middle of an element. */
+  async slide(selector, dx, dy) {
+    const r = await this.rect(selector), x = r.left + r.width / 2, y = r.top + r.height / 2;
+    await this.gesture([0, 1, 2, 3, 4].map(i => ({x: x + dx * i / 4, y: y + dy * i / 4})), 'touch');
+  }
+
   async draw(selector, seq, pointerType = 'touch') {
     const r = await this.rect(selector);
     await this.gesture(seq.map(i => ({x: r.left + (50 + 100 * (i % 3)) / 300 * r.width, y: r.top + (50 + 100 * Math.floor(i / 3)) / 300 * r.height})), pointerType);
@@ -220,48 +237,85 @@ try {
   assert(await ff.eval(`document.fonts.check('20px "Material Symbols Outlined"')&&document.documentElement.classList.contains('ico')`), 'icon font loaded');
   ff.check('set a password and a pattern by touch');
 
-  /* phone layout: a day opens as a sheet; rate it and write a line */
+  /* a phone opens on today: the date and the compass at the top, the sections in a bar at the bottom */
   const today = await ff.eval(`(()=>{const d=new Date();if(d.getHours()<4)d.setDate(d.getDate()-1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})()`);
-  await ff.tap('.mblock .cell.today');
-  await ff.wait(`document.querySelector('#sheet .editor')`, 'the day sheet');
-  await ff.tap('#sheet .rb[data-n="4"]');
-  await ff.type('#sheet textarea[data-field="recap"]', 'Written in Firefox');
+  const saved = () => ff.wait(`document.getElementById('status').classList.contains('ok')`, 'status "Saved"');
+  await ff.wait(`document.querySelector('#app .tday .thead .tdt')&&document.querySelector('.tabs .on')?.dataset.nav==='today'`, 'today as the first page');
+  assert(await ff.eval(`document.querySelector('.topbar').getBoundingClientRect().height===0&&document.querySelector('.thead').getBoundingClientRect().top===0&&Math.round(document.querySelector('.tabs').getBoundingClientRect().bottom)===innerHeight`), 'the date at the top, the sections at the bottom');
+  await ff.tap('.tday .rb[data-n="4"]');
+  await ff.type('.tday textarea[data-field="recap"]', 'Written in Firefox');
   await sleep(900);
-  await ff.wait(`document.getElementById('status').classList.contains('ok')`, 'status "Saved"');
+  await saved();
   const stored = await ff.eval(`fetch('api/data',{cache:'no-store'}).then(r=>r.json()).then(d=>d.days[${JSON.stringify(today)}])`);
   assert(stored && stored.rating === 4 && stored.recap === 'Written in Firefox', 'the entry reached the server: ' + JSON.stringify(stored));
-  await ff.shot('firefox-2-day');
-  ff.check('rate a day and write a recap');
+  await ff.shot('firefox-2-today');
+  ff.check('a phone opens on today; rate the day and write a recap');
 
   /* the plan by touch: a part of the day takes a new item, the kind is picked without losing the
-     field, and the item opens a small menu that moves it to the evening */
-  await ff.tap('#sheet .pband[data-drop$=":m"] .pl');
-  await ff.wait(`document.activeElement===document.querySelector('#sheet .pin input')`, 'the field in the morning');
-  await ff.tap('#sheet .pin [data-action="plan-kind-pick"][data-v="sport"]');
-  await ff.wait(`document.activeElement===document.querySelector('#sheet .pin input[data-kind="sport"]')`, 'the field still focused after picking the kind');
-  await ff.type('#sheet .pin input', 'Swimming');
-  await ff.wait(`document.querySelector('#sheet .pband[data-drop$=":m"] .pchip')`, 'the session in the morning');
-  await ff.tap('#sheet .plab');
-  await ff.wait(`!document.querySelector('#sheet .pin')`, 'a tap elsewhere closes the empty field');
-  await ff.tap('#sheet .pband[data-drop$=":m"] .pchip .ptt');
-  await ff.wait(`document.querySelector('#sheet .pmenu')&&document.querySelectorAll('#sheet .sheet').length===1`, 'the item menu, no second sheet');
-  await ff.shot('firefox-2b-plan-menu');
-  await ff.tap('#sheet .pmenu [data-action="plan-part"][data-v="e"]');
-  await ff.wait(`document.querySelector('#sheet .pband[data-drop$=":e"] .pmenu')`, 'the item moved to the evening');
+     field, the field stays when something else is tapped, and the item's menu moves it to the evening */
+  await ff.tap('.tday .pband[data-drop$=":m"] .pl');
+  await ff.wait(`document.activeElement===document.querySelector('.tday .pin input')`, 'the field in the morning');
+  await ff.tap('.tday .pin [data-action="plan-kind-pick"][data-v="sport"]');
+  await ff.wait(`document.activeElement===document.querySelector('.tday .pin input[data-kind="sport"]')`, 'the field still focused after picking the kind');
+  await ff.type('.tday .pin input', 'Swimming');
+  await ff.wait(`document.querySelector('.tday .pband[data-drop$=":m"] .pchip.rw')`, 'the session in the morning, as a row');
+  await ff.type('.tday .pin input', 'Stretching');
+  await ff.tap('.tday .plab');
   await sleep(300);
-  await ff.wait(`document.getElementById('status').classList.contains('ok')`, 'status "Saved"');
+  assert(await ff.eval(`document.querySelector('.tday .pin input')?.value==='Stretching'`), 'a tap elsewhere leaves the field and what was typed in it');
+  await ff.tap('.tday .core-btn');
+  await ff.wait(`document.querySelector('.tday .core-btn.on')&&document.querySelector('.tday .pin input')?.value==='Stretching'`, 'the text survives the page being drawn again');
+  await ff.tap('.tday .pin .pinx');
+  await ff.wait(`!document.querySelector('.tday .pin')`, 'its cross closes the field');
+  await ff.tap('.tday .pband[data-drop$=":m"] .pchip .ptt');
+  await ff.wait(`document.querySelector('.tday .pmenu')&&!document.querySelector('#sheet .sheet')`, 'the item menu under its row, no sheet');
+  await ff.shot('firefox-2b-plan-menu');
+  await ff.tap('.tday .pmenu [data-action="plan-part"][data-v="e"]');
+  await ff.wait(`document.querySelector('.tday .pband[data-drop$=":e"] .pmenu')`, 'the item moved to the evening');
+  await sleep(300);
+  await saved();
   const swim = await ff.eval(`fetch('api/data',{cache:'no-store'}).then(r=>r.json()).then(d=>Object.values(d.plan).find(x=>x.title==='Swimming'))`);
   assert(swim && swim.kind === 'sport' && swim.date === today && swim.part === 'e', 'the planned session reached the server: ' + JSON.stringify(swim));
-  await ff.tap('#sheet .ebox[data-at$=":people"] .ebh');
-  await ff.type('#sheet input[data-enter="ent-add"][data-k="people"]', 'Ana\uE007');
-  await ff.wait(`document.activeElement===document.querySelector('#sheet input[data-scope="ppl"][data-field="activity"]')`, 'the people row added at once');
+  await ff.tap('.tday .ebox[data-at$=":people"] .ebh');
+  await ff.type('.tday input[data-enter="ent-add"][data-k="people"]', 'Ana');
+  await ff.wait(`document.activeElement===document.querySelector('.tday input[data-scope="ppl"][data-field="activity"]')`, 'the people row added at once');
   ff.check('plan an item in a part of the day and move it from its menu, add people');
+
+  /* gestures in Gecko: a row swiped right is done, quick add from the bar, the date held opens Settings */
+  await ff.eval(`document.activeElement&&document.activeElement.blur()`);
+  await ff.tap('.tday .plab');
+  await ff.wait(`!document.querySelector('.tday .pmenu')`, 'the menu closed');
+  await ff.slide('.tday .pchip.rw[data-sw]', 160, 0);
+  await ff.wait(`document.querySelector('.tday .pband[data-drop$=":e"] .pchip.rw.done')`, 'the row swiped right is done');
+  await saved();
+  const done = await ff.eval(`fetch('api/data',{cache:'no-store'}).then(r=>r.json()).then(d=>({plan:Object.values(d.plan).find(x=>x.title==='Swimming'),acts:Object.values(d.activities)}))`);
+  assert(done.plan.status === 'done' && done.acts.length === 1 && done.acts[0].sport === 'Swimming' && done.acts[0].id === done.plan.link, 'ticking by swipe wrote the session: ' + JSON.stringify(done));
+  await sleep(400);
+  await ff.tap('.tabs .fab');
+  await ff.wait(`document.activeElement&&document.activeElement.matches('#quick input')`, 'quick add with the cursor in it');
+  await ff.type('#quick input', 'From quick add');
+  await ff.wait(`document.getElementById('toast').textContent==='Added to To-dos'`, 'the task added');
+  await saved();
+  assert(await ff.eval(`fetch('api/data',{cache:'no-store'}).then(r=>r.json()).then(d=>Object.values(d.tasks).some(t=>t.title==='From quick add'&&t.plannedFor===null))`), 'the quick task reached the server');
+  await ff.shot('firefox-2c-quick-add');
+  await ff.tap('#quick [data-action="quick-close"]');
+  await ff.wait(`!document.querySelector('#quick .qa')`, 'quick add closed');
+  await sleep(400);
+  await ff.hold('.thead .tdt');
+  await ff.wait(`location.hash==='#settings'`, 'holding the date opens Settings');
+  await ff.tap('.tabs [data-nav="calendar"]');
+  await ff.tap('.mblock .cell.today');
+  await ff.wait(`document.querySelector('#sheet .editor .rb.on[data-n="4"]')&&document.querySelector('#sheet .pchip.rw.done')`, 'the same day as a sheet from the calendar');
+  await ff.shot('firefox-2d-day-sheet');
+  await ff.tap('#sheet [data-action="sheet-close"]');
+  await ff.wait(`!document.querySelector('#sheet .sheet')`, 'the sheet closed');
+  ff.check('swipe, quick add and hold by touch; the day sheet from the calendar');
 
   /* lock, then unlock by drawing the pattern with a finger */
   await ff.eval(`fetch('api/auth/lock',{method:'POST',headers:{'X-LifeOS':'1'}}).then(r=>r.status)`);
   await ff.reload();
   await ff.gate('.pgrid[data-pat="unlock"]');
-  assert(await ff.eval(`document.getElementById('app').innerHTML===''`), 'nothing is rendered while locked');
+  assert(await ff.eval(`document.getElementById('app').innerHTML===''&&document.getElementById('tabs').innerHTML===''&&document.getElementById('quick').innerHTML===''`), 'nothing is rendered while locked');
   await ff.shot('firefox-3-locked');
   await ff.draw('#gate .pgrid', [2, 1, 0, 3]);
   await ff.wait(`/Wrong pattern\\. 4 tries left/.test(document.getElementById('gmsg').textContent)`, 'the wrong-pattern message');
@@ -302,12 +356,16 @@ try {
   console.log('Demo mode');
   await ff.goto(await startStatic());
   await ff.ready();
-  assert(await ff.eval(`document.querySelectorAll('.mblock .cell.rated:not(.out)').length`) >= 40, 'the demo calendar is filled');
+  await ff.wait(`document.querySelector('#app .tday .pband.now')&&document.querySelector('.tday .pband.due')&&document.querySelectorAll('.tday .hb').length>=5`, 'the demo opens on today');
   await ff.shot('firefox-5-demo');
+  await ff.tap('.thead .cbtn');
+  await ff.wait(`document.querySelector('.thead.open')&&document.querySelectorAll('#cpanel .ctile').length===6`, 'the compass opens');
+  await ff.shot('firefox-5b-compass');
   for (const view of ['review', 'tasks', 'settings', 'calendar']) {
     await ff.eval(`location.hash='#${view}'`);
     await ff.wait(`document.getElementById('app').children.length>0`, view);
   }
+  await ff.wait(`document.querySelectorAll('.mblock .cell.rated:not(.out)').length>=40`, 'the demo calendar is filled');
   ff.check('demo opens and every view renders');
   console.log('Firefox check passed.');
 } catch (err) {

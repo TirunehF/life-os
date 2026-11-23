@@ -223,6 +223,20 @@ class Page {
     await touch('touchEnd');
   }
 
+  /* One finger: press on an element, optionally hold, optionally move, lift. `x` and `y` set where on the element. */
+  async finger(selector, {dx = 0, dy = 0, hold = 0, x, y} = {}) {
+    const p = await this.point(selector);
+    const from = {x: x == null ? p.x : p.left + x, y: y == null ? p.y : p.top + y};
+    const touch = (type, at) => this.cdp('Input.dispatchTouchEvent', {type, touchPoints: at ? [{x: Math.round(at.x), y: Math.round(at.y)}] : []});
+    await touch('touchStart', from);
+    if (hold) await sleep(hold);
+    if (dx || dy) for (let i = 1; i <= 8; i++) { await touch('touchMove', {x: from.x + dx * i / 8, y: from.y + dy * i / 8}); await sleep(16); }
+    await touch('touchEnd');
+    await sleep(60);
+  }
+  tap(selector) { return this.finger(selector); }
+  hold(selector) { return this.finger(selector, {hold: 650}); }
+
   ready() { return this.wait(`!document.getElementById('gate').classList.contains('show')&&/\\b(ok|warn)\\b/.test(document.getElementById('status').className)&&document.getElementById('nav').children.length>0`, 'the app to be open'); }
   saved() { return this.wait(`document.getElementById('status').classList.contains('ok')`, 'status "Saved"'); }
   gate(selector) { return this.wait(`document.querySelector('#gate.show ${selector}')`, 'gate ' + selector); }
@@ -543,6 +557,19 @@ async function serverMode(browser) {
   await page.saved();
   page.check('font picker loads local fonts only');
 
+  /* what is typed into an add field but not added yet is kept while the app is open */
+  const security = () => page.wait(`[...document.querySelectorAll('.sec h2')].some(h=>h.textContent==='Security')`, 'Settings');
+  await page.click('[data-nav="calendar"]');
+  await page.click(`.side .pband[data-drop="slot:${today}:m"] .pplus`);
+  await page.type('.side .pin input', 'A draft that is not added');
+  await page.click('#gear');
+  await security();
+  await page.click('[data-nav="calendar"]');
+  await page.wait(`document.querySelector('.side .pin input')?.value==='A draft that is not added'`, 'the draft kept across views');
+  await page.click('#gear');
+  await security();
+  page.check('a draft survives a change of view');
+
   /* lock when leaving the app; unlocking brings the data back */
   await page.relock(0);
   await page.visibility('hidden');
@@ -551,10 +578,16 @@ async function serverMode(browser) {
   await page.shot('server-4-locked');
   assert(await page.eval(`document.getElementById('app').innerHTML===''&&document.getElementById('sheet').innerHTML===''`), 'no data is left in the page while locked');
   assert(!(await page.eval(`document.body.innerText`)).includes('Smoke test recap'), 'no journal text is visible while locked');
+  assert(!(await page.eval(`document.documentElement.outerHTML`)).includes('A draft that is not added'), 'nothing typed is left in the page while locked');
   await page.wait(`fetch('api/auth/state').then(r=>r.json()).then(s=>s.locked===true)`, 'the server to report the session as locked');
   await page.draw('#gate .pgrid', PATTERN);
   await page.ready();
   await page.wait(`location.hash==='#settings'&&document.querySelector('[data-change="sec-relock"]').value==='0'`, 'settings after unlocking');
+  await page.click('[data-nav="calendar"]');
+  await page.wait(`document.querySelector('.side .pin input')?.value===''`, 'the draft was dropped when the device locked');
+  await page.press('Escape');
+  await page.click('#gear');
+  await security();
   page.check('lock on leaving, unlock with the pattern');
 
   await page.reload();                      // "when I leave": a fresh page starts locked
@@ -738,16 +771,136 @@ async function demoMode(browser) {
   assert(await page.eval(`![...document.querySelectorAll('.tte')].some(e=>e.textContent==='A change that is not kept')`), 'changes are gone after a reload');
   page.check('edits are not saved');
 
-  /* phone size: a day opens as a sheet; the note can be hidden */
+  /* phone size: the day is a page, the date and the compass on top, the sections in a bar at the bottom */
   await page.cdp('Emulation.setDeviceMetricsOverride', {width: 390, height: 844, deviceScaleFactor: 3, mobile: true});
-  await page.goto(base + '#calendar');
+  await page.goto(base);
   await page.ready();
+  await page.wait(`document.querySelector('#app .tday .thead .tdt')&&document.querySelector('.tabs .on')?.dataset.nav==='today'`, 'a phone opens on today');
   await page.click('.banner.demo [data-action="banner-off"]');
   await page.wait(`!document.querySelector('.banner.demo')`, 'the banner to hide');
-  await page.shot('demo-5-phone-calendar');
-  await page.eval(`document.querySelector('.mblock .cell.today').click()`);
-  await page.wait(`document.querySelector('#sheet .editor .pbands')`, 'the day sheet on a phone, with the plan');
+  assert(await page.eval(`(()=>{const b=document.querySelector('.topbar');return b.getBoundingClientRect().height===0&&getComputedStyle(b).visibility==='hidden';})()`), 'no bar at the top of a phone');
+  assert(await page.eval(`(()=>{const hd=document.querySelector('.thead');return hd.getBoundingClientRect().top===0&&hd.getBoundingClientRect().height<=96&&hd.querySelectorAll('button,input,a').length===3&&document.getElementById('cpanel').children.length===0;})()`), 'the top holds the date, the focus and the closed compass, and nothing else');
+  assert(await page.eval(`[...document.querySelectorAll('.tabs [data-nav]')].map(x=>x.dataset.nav).join()==='today,calendar,tasks,review'&&!!document.querySelector('.tabs .fab')`), 'the sections are a bar at the bottom, quick add in its middle');
+  assert(await page.eval(`document.querySelectorAll('.tday .pband.now').length===1&&document.querySelectorAll('.tday .pchip.rw [data-action="plan-toggle"]').length>=2&&!document.querySelector('.tday .pchip[draggable]')`), 'the plan is rows that tick, with the part of the day it is now marked');
+  assert(await page.eval(`!!document.querySelector('.tday .pband.due .pchip.rw .tpb')&&document.querySelectorAll('.tday .hb').length>=5&&!!document.querySelector('.tday .jrow textarea[data-field="recap"]')`), 'to-dos that are due, the habits and the journal follow the plan');
+  await page.shot('demo-5-phone-today');
+
+  /* the compass: one line until it is opened */
+  await page.click('.thead .cbtn');
+  await page.wait(`document.querySelector('.thead.open')&&document.querySelectorAll('#cpanel .ctile').length===6&&document.querySelector('#cpanel .cint .pst')&&getComputedStyle(document.getElementById('cpanel')).visibility==='visible'`, 'the compass opened: the week’s intentions and how the week stands');
+  await sleep(400);                         // the panel unrolls; what is not shown yet cannot be pressed
+  await page.shot('demo-5b-phone-compass');
+  await page.click('#cpanel .cint:not(.done) .pst');
+  await page.wait(`document.querySelector('#cpanel .cint.done')&&document.querySelector('.thead.open')`, 'an intention ticked, the compass still open');
+  await page.click('#cpanel .chandle');
+  await page.wait(`!document.querySelector('.thead.open')`, 'the compass closed');
+
+  /* a field that is open stays open, with what was typed, whatever else is pressed */
+  const noon = '.tday .pband[data-drop$=":a"]';
+  await page.click(noon + ' .pplus');
+  await page.wait(`document.activeElement===document.querySelector('.tday .pin input')`, 'typing straight into the afternoon');
+  await page.cdp('Input.insertText', {text: 'Buy bread'});
+  await page.click('.tday .plab');
+  await sleep(150);
+  assert(await page.eval(`document.querySelector('.tday .pin input')?.value==='Buy bread'`), 'pressing elsewhere leaves the field and its text');
+  await page.click('.tday .hb:not([disabled])');
+  await page.wait(`document.querySelector('.tday .pin input')?.value==='Buy bread'`, 'the text survives the page being drawn again');
+  await page.shot('demo-5c-phone-add-in-place');
+  await page.click('.tday .pin .pinx');
+  await page.wait(`!document.querySelector('.tday .pin')`, 'its own cross closes the field');
+  await page.click(noon + ' .pplus');
+  await page.wait(`document.activeElement&&document.activeElement.matches('.tday .pin input')&&document.activeElement.value==='Buy bread'`, 'opened again, the text is still there');
+  await page.press('Enter');
+  await page.wait(`[...document.querySelectorAll('${noon} .pchip.rw .ptt')].some(e=>e.textContent==='Buy bread')&&document.querySelector('.tday .pin input')?.value===''`, 'Enter adds the item and empties the field');
+  await page.press('Enter');
+  await page.wait(`!document.querySelector('.tday .pin')`, 'Enter in the empty field closes it');
+  page.check('phone: today, the compass, a field that stays');
+
+  /* by touch: a row swiped right is done, swiped left it moves to tomorrow; a hold shows what a mouse sees by hovering */
+  await page.cdp('Emulation.setTouchEmulationEnabled', {enabled: true});
+  const doneRows = await page.eval(`document.querySelectorAll('${noon} .pchip.rw.done').length`);
+  await page.finger(noon + ' .pchip.rw[data-sw]', {dx: 140});
+  await page.wait(`document.querySelectorAll('${noon} .pchip.rw.done').length===${doneRows + 1}`, 'a row swiped right is done');
+  const late = await page.eval(`document.querySelectorAll('.tday .pband.due .tag.late').length`);
+  assert(late >= 1, 'the demo has overdue to-dos');
+  await page.finger('.tday .pband.due .pchip.rw[data-sw]', {dx: -140});
+  await page.wait(`document.getElementById('why').classList.contains('show')&&document.querySelectorAll('.tday .pband.due .tag.late').length===${late - 1}`, 'a to-do swiped left moves to tomorrow, and the page asks why');
+  await page.tap('#why [data-v="Tired"]');
+  await page.wait(`!document.getElementById('why').classList.contains('show')`, 'the reason taken');
+  const habit = await page.eval(`document.querySelector('.tday .hb').getAttribute('aria-pressed')`);
+  await page.hold('.tday .hb');
+  await page.wait(`document.getElementById('hover').classList.contains('show')&&document.querySelectorAll('#hover .hpk i').length===28`, 'holding a habit shows its last four weeks');
+  assert(await page.eval(`document.querySelector('.tday .hb').getAttribute('aria-pressed')`) === habit, 'a hold is not a tap');
+  await page.shot('demo-5d-phone-habit-held');
+
+  /* quick add: stays until it is closed; held, the button offers its other kinds */
+  await page.tap('.tabs .fab');
+  await page.wait(`document.activeElement&&document.activeElement.matches('#quick input')`, 'quick add with the cursor in it');
+  await page.cdp('Input.insertText', {text: 'Renew the passport'});
+  await page.tap('.tday .plab');
+  await sleep(150);
+  assert(await page.eval(`document.querySelector('#quick input')?.value==='Renew the passport'`), 'quick add stays, with its text, when the page is pressed');
+  await page.shot('demo-5e-phone-quick-add');
+  await page.tap('#quick input');
+  await page.wait(`document.activeElement===document.querySelector('#quick input')`, 'the cursor back in quick add');
+  await page.press('Enter');
+  await page.toast('Added to To-dos');
+  await page.press('Enter');
+  await page.wait(`!document.querySelector('#quick .qa')`, 'Enter in the empty field closes quick add');
+  await sleep(400);                         // the bar slides back
+  await page.hold('.tabs .fab');
+  await page.wait(`document.querySelectorAll('.fabw .pop [data-action="quick-kind"]').length===3&&!document.querySelector('#quick .qa')`, 'holding the button offers a sport session or a note');
+  await page.tap('.fabw .pop [data-v="note"]');
+  await page.wait(`document.activeElement&&document.activeElement.matches('#quick input[placeholder="A note for today"]')`, 'quick add for a note');
+  await page.cdp('Input.insertText', {text: 'A note from the smoke test'});
+  await page.press('Enter');
+  await page.wait(`document.querySelector('.tday textarea[data-field="recap"]').value.endsWith('A note from the smoke test')`, 'the note joined today’s recap');
+  await page.tap('#quick [data-action="quick-close"]');
+  await page.wait(`!document.querySelector('#quick .qa')`, 'quick add closed');
+  await sleep(400);
+
+  /* the date: swiped it changes the day, pressed it comes back, held it opens Settings */
+  await page.finger('.thead .tdt', {dx: -130});
+  await page.wait(`document.querySelector('.tdt.off small')?.textContent==='tomorrow'`, 'swiping the date goes to the next day');
+  await page.tap('.thead .tdt');
+  await page.wait(`document.querySelector('.tdt')&&!document.querySelector('.tdt.off')`, 'pressing the date comes back to today');
+  await page.hold('.thead .tdt');
+  await page.wait(`location.hash==='#settings'&&document.querySelectorAll('.tile').length>=6`, 'holding the date opens Settings');
+  await page.eval(`document.querySelector('.schema details').open=true`);
+  await page.tap('[data-action="backup-open"]');
+  await page.wait(`document.activeElement===document.querySelector('#sheet [data-sk="pw"]')`, 'the backup dialog');
+  await page.cdp('Input.insertText', {text: 'typed, not sent'});
+  await sleep(300);
+  await page.tap('.sheet-bg');
+  await sleep(250);
+  assert(await page.eval(`document.querySelector('#sheet [data-sk="pw"]')?.value==='typed, not sent'`), 'a sheet with a password typed into it stays when the page beside it is pressed');
+  await page.tap('#sheet [data-action="sheet-close"]');
+  await page.wait(`!document.querySelector('#sheet .sheet')`, 'its own cross closes it');
+  await page.tap('.tabs [data-nav="tasks"]');
+  await page.wait(`[...document.querySelectorAll('.tte')].some(e=>e.textContent==='Renew the passport')`, 'the task from quick add in To-dos');
+  await page.tap('.tabs [data-nav="calendar"]');
+  await page.wait(`document.querySelector('.mblock .cell.today')`, 'the calendar');
+  await page.shot('demo-5f-phone-calendar');
+  await page.hold('.mblock .cell.today');
+  await page.wait(`document.getElementById('hover').classList.contains('show')`, 'holding a day shows its preview');
+  assert(await page.eval(`!document.querySelector('#sheet .sheet')`), 'holding a day does not open it');
+  await page.hold('.chip[data-fx-cat="habits"]');
+  await page.wait(`document.querySelector('.pop.hold .pt')&&!document.getElementById('hover').classList.contains('show')`, 'holding a filter shows its tags');
+  await page.tap('.pop.hold .pt');
+  await page.wait(`document.querySelector('.grid.fx')&&!document.querySelector('.pop.hold')`, 'a tag chosen by touch');
+  await page.tap('.chip.fx');
+  await page.wait(`!document.querySelector('.grid.fx')`, 'the filter cleared');
+  page.check('phone: swipes, holds and quick add');
+
+  /* a day opened from the calendar is a sheet with the same rows; it is pulled shut by its top edge */
+  await page.tap('.mblock .cell.today');
+  await page.wait(`document.querySelector('#sheet .editor .pbands')&&document.querySelector('#sheet .pchip.rw')`, 'the day sheet on a phone, with the plan');
   await page.shot('demo-6-phone-day');
+  await page.finger('#sheet .sheet', {dy: 170, y: 16});
+  await page.wait(`!document.querySelector('#sheet .sheet')`, 'the sheet pulled shut');
+  await page.cdp('Emulation.setTouchEmulationEnabled', {enabled: false});
+  await page.eval(`document.querySelector('.mblock .cell.today').click()`);
+  await page.wait(`document.querySelector('#sheet .editor .pbands')`, 'the day sheet again');
   await page.click('#sheet .pband[data-drop$=":m"] .pl');
   await page.wait(`document.activeElement===document.querySelector('#sheet .pin input')`, 'typing straight into the morning');
   await page.shot('demo-6b-phone-day-add');
@@ -762,7 +915,9 @@ async function demoMode(browser) {
   await page.press('Enter');
   await page.wait(`document.querySelectorAll('#sheet [data-change="act-sport"]').length===${sessions + 1}&&document.activeElement.matches('#sheet input[data-scope="act"][data-field="note"]')&&document.activeElement.value===''`, 'the session added at once, the cursor on its note');
   await page.shot('demo-6d-phone-day-sport');
-  page.check('phone layout');
+  await page.click('#sheet [data-action="sheet-close"]');
+  await page.wait(`!document.querySelector('#sheet .sheet')`, 'the sheet closed');
+  page.check('phone: the day sheet');
   await page.cdp('Emulation.clearDeviceMetricsOverride');
 }
 

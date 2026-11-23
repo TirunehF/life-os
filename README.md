@@ -75,7 +75,10 @@ until a password exists, whoever opens the page first chooses it.
   locks, is chosen per device in Settings, under Security.
 
 On Android, open the address in Chrome and choose "Add to Home screen" to get
-a full-screen app named Life OS.
+a full-screen app named Life OS. On a phone it opens on today: tick what you
+planned, swipe a row right when it is done or left to move it to tomorrow,
+and press the line under the date to see the week. Hold the date for
+Settings.
 
 ## Backups
 

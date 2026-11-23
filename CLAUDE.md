@@ -51,7 +51,7 @@ repository.
 
 | Path | What |
 |------|------|
-| `app/index.html` | The whole front-end. `Store` is the only storage layer; `Auth` holds sign-in and lock; `SCHEMA` lists the eleven collections. The plan section (`planIdx()` and the `plan…` functions) holds everything about planned items. |
+| `app/index.html` | The whole front-end. `Store` is the only storage layer; `Auth` holds sign-in and lock; `SCHEMA` lists the eleven collections. The plan section (`planIdx()` and the `plan…` functions) holds everything about planned items. The phone section (`isPhone()`, `theadHTML`, the compass, `renderTabs`, `renderQuick`) and the last block of the style sheet draw the layout for windows under 700 px; a wider window must look the same after any change there. |
 | `app/demo.js` | Pure function that builds the example data for demo mode. |
 | `app/config.js` | Selects demo mode. The server answers `/config.js` itself with server mode. |
 | `server/lifeos/` | The server. `app.py` routes, `auth.py` login and lock, `db.py` storage and validation. |
@@ -74,7 +74,8 @@ tests/container/run.sh                    # installer life cycle (Docker, unpriv
 `tests/run.sh` runs the first three. The smoke test fails on any console
 error, uncaught exception or request to another host, so run it after every
 change to `app/`. The owner uses the app in Firefox on Android, so run the
-Firefox check too when you touch the lock, the pattern grid or the layout. `SHOTS=/some/folder node tests/smoke.mjs` saves screenshots.
+Firefox check too when you touch the lock, the pattern grid, the layout or
+anything done by touch (swipes, holds, the bar at the bottom, quick add). `SHOTS=/some/folder node tests/smoke.mjs` saves screenshots.
 
 When you change behaviour, change the test that covers it in the same commit:
 `tests/test_server.py` for the API and the lock, `tests/smoke.mjs` for

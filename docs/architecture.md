@@ -34,6 +34,22 @@ in `plan_log`; moving it to another day or skipping it is logged and asks why.
 The plan a week started with is frozen on that week's `periods` document, and
 the review compares against it. `docs/data-format.md` has the fields.
 
+**The phone.** In a window narrower than 700 px the same page is laid out
+for one hand, by one block at the end of the style sheet and by `isPhone()`
+in the script (both use the same width). The app then opens on today as a
+page of its own: the date is the only thing at the top, with the compass
+under it, one line that holds the focus of the day and opens into the week's
+intentions, the month's focus and the week so far. The plan is drawn as rows
+(`planRow`) instead of chips, the sections move to a bar at the bottom, and
+its middle button adds a task, a sport session or a note. Touch stands in
+for the mouse: a row swiped right is done and swiped left moves to tomorrow,
+the date swiped changes the day, and a press that is held shows what
+hovering shows (a day's preview, a filter's tags, a habit's last weeks) and
+opens Settings from the date. A field that is open stays open when
+something else is pressed; what is typed into an add field is kept in
+memory until it is added (`S.drafts`, dropped with everything else when the
+device locks). Nothing about the data or the API differs on a phone.
+
 The mode is never guessed. If `config.js` is missing or the server cannot be
 reached, the page says so; it does not fall back to demo data that someone
 could type into by mistake. A real install does not serve `demo.js` at all.
