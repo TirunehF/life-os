@@ -77,8 +77,10 @@ until a password exists, whoever opens the page first chooses it.
 On Android, open the address in Chrome and choose "Add to Home screen" to get
 a full-screen app named Life OS. On a phone it opens on today: tick what you
 planned, swipe a row right when it is done or left to move it to tomorrow,
-and press the line under the date to see the week. Hold the date for
-Settings.
+and press the line under the date to see the week. Swipe sideways anywhere
+else to move between Today, Calendar, To-dos and Review. The calendar shows
+one month: swipe it up or down for the next or the previous one, and pull a
+day you opened a little way down to put it away. Hold the date for Settings.
 
 ## Backups
 

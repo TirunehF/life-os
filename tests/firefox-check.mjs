@@ -303,13 +303,31 @@ try {
   await sleep(400);
   await ff.hold('.thead .tdt');
   await ff.wait(`location.hash==='#settings'`, 'holding the date opens Settings');
-  await ff.tap('.tabs [data-nav="calendar"]');
+
+  /* a sideways swipe leads to the page beside it; the calendar is one month that fits the screen and turns with a swipe
+     up or down; a day opened from it is hidden by a short pull in its middle */
+  await ff.tap('.tabs [data-nav="today"]');
+  await ff.wait(`document.querySelector('#app .tday .plab')`, 'today again');
+  await sleep(350);
+  await ff.slide('.tday .plab', -170, 0);
+  await ff.wait(`location.hash==='#calendar'&&document.querySelectorAll('.mblock').length===1&&document.querySelector('.mblock .cell.today')`, 'a swipe to the left leads to the calendar, which shows one month');
+  await sleep(350);
+  assert(await ff.eval(`document.documentElement.scrollHeight<=window.innerHeight&&[...document.querySelectorAll('.mblock .cell')].pop().getBoundingClientRect().bottom<=document.getElementById('tabs').getBoundingClientRect().top`), 'the month fits between the title and the bar');
+  const month = await ff.eval(`document.querySelector('.mblock').dataset.month`);
+  await ff.slide('.mblock .cell:nth-of-type(18)', 0, -110);
+  await ff.wait(`document.querySelectorAll('.mblock').length===1&&document.querySelector('.mblock').dataset.month>${JSON.stringify(month)}`, 'a swipe up shows the next month');
+  await sleep(350);
+  await ff.slide('.mblock .cell:nth-of-type(18)', 0, 110);
+  await ff.wait(`document.querySelector('.mblock').dataset.month===${JSON.stringify(month)}`, 'a swipe down the one before');
+  await sleep(350);
+  await ff.shot('firefox-2d-month');
   await ff.tap('.mblock .cell.today');
   await ff.wait(`document.querySelector('#sheet .editor .rb.on[data-n="4"]')&&document.querySelector('#sheet .pchip.rw.done')`, 'the same day as a sheet from the calendar');
-  await ff.shot('firefox-2d-day-sheet');
-  await ff.tap('#sheet [data-action="sheet-close"]');
-  await ff.wait(`!document.querySelector('#sheet .sheet')`, 'the sheet closed');
-  ff.check('swipe, quick add and hold by touch; the day sheet from the calendar');
+  await sleep(350);
+  await ff.shot('firefox-2e-day-sheet');
+  await ff.slide('#sheet .sheet', 0, 90);
+  await ff.wait(`!document.querySelector('#sheet .sheet')`, 'a short pull in the middle of the sheet hides the day');
+  ff.check('swipe, quick add and hold by touch; pages, the month and the day sheet by swipe');
 
   /* lock, then unlock by drawing the pattern with a finger */
   await ff.eval(`fetch('api/auth/lock',{method:'POST',headers:{'X-LifeOS':'1'}}).then(r=>r.status)`);
@@ -365,7 +383,8 @@ try {
     await ff.eval(`location.hash='#${view}'`);
     await ff.wait(`document.getElementById('app').children.length>0`, view);
   }
-  await ff.wait(`document.querySelectorAll('.mblock .cell.rated:not(.out)').length>=40`, 'the demo calendar is filled');
+  await ff.tap('[data-action="cal-prev"]');
+  await ff.wait(`document.querySelectorAll('.mblock').length===1&&document.querySelectorAll('.mblock .cell.rated:not(.out)').length>=15`, 'the demo calendar is filled: one month at a time, last month with its ratings');
   ff.check('demo opens and every view renders');
   console.log('Firefox check passed.');
 } catch (err) {

@@ -51,7 +51,7 @@ repository.
 
 | Path | What |
 |------|------|
-| `app/index.html` | The whole front-end. `Store` is the only storage layer; `Auth` holds sign-in and lock; `SCHEMA` lists the eleven collections. The plan section (`planIdx()` and the `plan…` functions) holds everything about planned items. The phone section (`isPhone()`, `theadHTML`, the compass, `renderTabs`, `renderQuick`) and the last block of the style sheet draw the layout for windows under 700 px; a wider window must look the same after any change there. |
+| `app/index.html` | The whole front-end. `Store` is the only storage layer; `Auth` holds sign-in and lock; `SCHEMA` lists the eleven collections. The plan section (`planIdx()` and the `plan…` functions) holds everything about planned items. The phone section (`isPhone()`, `theadHTML`, the compass, `renderTabs`, `renderQuick`, `pageGo`, `calFit`) and the last block of the style sheet draw the layout for windows under 700 px, and `swipeTarget()` decides what a touch moves; a wider window must look the same after any change there. |
 | `app/demo.js` | Pure function that builds the example data for demo mode. |
 | `app/config.js` | Selects demo mode. The server answers `/config.js` itself with server mode. |
 | `server/lifeos/` | The server. `app.py` routes, `auth.py` login and lock, `db.py` storage and validation. |

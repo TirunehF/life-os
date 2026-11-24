@@ -783,6 +783,7 @@ async function demoMode(browser) {
   assert(await page.eval(`[...document.querySelectorAll('.tabs [data-nav]')].map(x=>x.dataset.nav).join()==='today,calendar,tasks,review'&&!!document.querySelector('.tabs .fab')`), 'the sections are a bar at the bottom, quick add in its middle');
   assert(await page.eval(`document.querySelectorAll('.tday .pband.now').length===1&&document.querySelectorAll('.tday .pchip.rw [data-action="plan-toggle"]').length>=2&&!document.querySelector('.tday .pchip[draggable]')`), 'the plan is rows that tick, with the part of the day it is now marked');
   assert(await page.eval(`!!document.querySelector('.tday .pband.due .pchip.rw .tpb')&&document.querySelectorAll('.tday .hb').length>=5&&!!document.querySelector('.tday .jrow textarea[data-field="recap"]')`), 'to-dos that are due, the habits and the journal follow the plan');
+  assert(await page.eval(`(()=>{const all=[...document.querySelectorAll('.tday .editor *')],at=q=>all.indexOf(document.querySelector('.tday .editor '+q)),o=['.rating','.hrow'].concat(['recap','highlight','lowlight','learnings','memory'].map(f=>'.jrow textarea[data-field="'+f+'"]'),['.ebox[data-at$=":sport"]','.ebox[data-at$=":people"]']).map(at);return o.every((v,i)=>v>=0&&(!i||v>o[i-1]));})()`), 'the day’s own log runs: rating, habits, recap, highlight, lowlight, drifts, memory, and only then sport and people');
   await page.shot('demo-5-phone-today');
 
   /* the compass: one line until it is opened */
@@ -820,7 +821,7 @@ async function demoMode(browser) {
   await page.cdp('Emulation.setTouchEmulationEnabled', {enabled: true});
   const doneRows = await page.eval(`document.querySelectorAll('${noon} .pchip.rw.done').length`);
   await page.finger(noon + ' .pchip.rw[data-sw]', {dx: 140});
-  await page.wait(`document.querySelectorAll('${noon} .pchip.rw.done').length===${doneRows + 1}`, 'a row swiped right is done');
+  await page.wait(`document.querySelectorAll('${noon} .pchip.rw.done').length===${doneRows + 1}&&document.querySelector('.tabs .on')?.dataset.nav==='today'`, 'a row swiped right is done, and the page stays');
   const late = await page.eval(`document.querySelectorAll('.tday .pband.due .tag.late').length`);
   assert(late >= 1, 'the demo has overdue to-dos');
   await page.finger('.tday .pband.due .pchip.rw[data-sw]', {dx: -140});
@@ -878,8 +879,56 @@ async function demoMode(browser) {
   await page.wait(`!document.querySelector('#sheet .sheet')`, 'its own cross closes it');
   await page.tap('.tabs [data-nav="tasks"]');
   await page.wait(`[...document.querySelectorAll('.tte')].some(e=>e.textContent==='Renew the passport')`, 'the task from quick add in To-dos');
-  await page.tap('.tabs [data-nav="calendar"]');
-  await page.wait(`document.querySelector('.mblock .cell.today')`, 'the calendar');
+
+  /* a sideways swipe leads to the page beside it, in the order of the bar; a swipe along a title moves in time instead */
+  await page.finger('.panel .head', {dx: -130});
+  await page.wait(`location.hash==='#review'&&document.querySelector('.tabs .on')?.dataset.nav==='review'&&document.querySelector('.rv-head h1')`, 'a swipe to the left leads from To-dos to Review');
+  await sleep(350);
+  await page.finger('.rvh', {dx: -130});
+  await sleep(350);
+  assert(await page.eval(`location.hash==='#review'&&!document.getElementById('app').style.transform`), 'past the last page there is nothing: the page comes back');
+  const period = await page.eval(`document.querySelector('.rv-head h1').textContent`);
+  await page.finger('.rv-head h1', {dx: 130});
+  await page.wait(`location.hash==='#review'&&document.querySelector('.rv-head h1').textContent!==${JSON.stringify(period)}`, 'a swipe along the title of the review shows the week before');
+  await sleep(350);
+  await page.finger('.rvh', {dx: 130});
+  await page.wait(`location.hash==='#tasks'&&document.querySelector('.panel .head')`, 'a swipe to the right leads back to To-dos');
+  await sleep(350);
+  await page.finger('.panel .head', {dx: 130});
+  await page.wait(`location.hash==='#calendar'&&document.querySelector('.mblock .cell.today')`, 'and on to the calendar');
+  await sleep(350);
+
+  /* the calendar shows one month, with the days around it that complete its weeks; it fits the screen and never scrolls */
+  assert(await page.eval(`(()=>{const c=[...document.querySelectorAll('.mblock .cell')],m=c.filter(x=>!x.classList.contains('out')),ym=m[0].dataset.date.slice(0,7);return document.querySelectorAll('.mblock').length===1&&c.length%7===0&&c.length<=42&&m.every(x=>x.dataset.date.slice(0,7)===ym)&&m.length===new Date(Number(ym.slice(0,4)),Number(ym.slice(5)),0).getDate()&&c[0].dataset.date<=ym+'-01'&&c[0].classList.contains('out')===(c[0].dataset.date<ym+'-01');})()`), 'one month, whole weeks, the days of the months around it dimmed');
+  assert(await page.eval(`document.documentElement.scrollHeight<=window.innerHeight&&[...document.querySelectorAll('.mblock .cell')].pop().getBoundingClientRect().bottom<=document.getElementById('tabs').getBoundingClientRect().top`), 'the month fits between the title and the bar');
+  const month = await page.eval(`document.querySelector('.mblock').dataset.month`);
+  const mid = '.mblock .cell:nth-of-type(18)';
+  await page.finger(mid, {dy: -80});
+  await page.wait(`document.querySelectorAll('.mblock').length===1&&document.querySelector('.mblock').dataset.month>${JSON.stringify(month)}`, 'a swipe up shows the next month');
+  await sleep(350);
+  assert(await page.eval(`document.documentElement.scrollHeight<=window.innerHeight`), 'whatever its number of weeks, the month fits');
+  await page.finger(mid, {dy: 80});
+  await page.wait(`document.querySelector('.mblock').dataset.month===${JSON.stringify(month)}`, 'a swipe down the one before');
+  await sleep(350);
+  await page.finger('.cal-title', {dx: 130});
+  await page.wait(`location.hash==='#calendar'&&document.querySelector('.mblock').dataset.month<${JSON.stringify(month)}`, 'a swipe along the title moves in time too');
+  await page.tap('[data-action="cal-today"]');
+  await page.wait(`document.querySelector('.mblock').dataset.month===${JSON.stringify(month)}&&document.querySelector('.mblock .cell.today')`, 'back in this month');
+  await page.eval(`document.querySelector('.mblock .cell').dispatchEvent(new WheelEvent('wheel',{deltaY:120,bubbles:true,cancelable:true}))`);
+  await page.wait(`document.querySelector('.mblock').dataset.month>${JSON.stringify(month)}`, 'in a narrow window with a mouse the wheel turns the month');
+  await page.tap('[data-action="cal-today"]');
+  await page.wait(`document.querySelector('.mblock').dataset.month===${JSON.stringify(month)}`, 'this month again');
+  await page.tap('.cal-title');
+  await page.wait(`document.querySelectorAll('.wblock').length===1&&document.querySelectorAll('.wblock .wcard').length===7`, 'the week view shows one week');
+  assert(await page.eval(`(()=>{const w=[...document.querySelectorAll('.wblock .wcard')].map(c=>Math.round(c.getBoundingClientRect().width));return w.every(x=>x===w[0]);})()`), 'the cards of the week are equally wide, the selected one too');
+  await page.tap('.cal-title');
+  await page.wait(`document.querySelector('.mblock .cell.today')`, 'the month again');
+  await page.finger(mid, {dx: 130});
+  await page.wait(`location.hash==='#today'&&document.querySelector('.tday .tdt')&&!document.querySelector('.tdt.off')`, 'a swipe to the right on the month leads to today');
+  await sleep(350);
+  await page.finger('.tday .plab', {dx: -130});
+  await page.wait(`location.hash==='#calendar'&&document.querySelector('.mblock .cell.today')`, 'and one to the left back to the calendar');
+  await sleep(350);
   await page.shot('demo-5f-phone-calendar');
   await page.hold('.mblock .cell.today');
   await page.wait(`document.getElementById('hover').classList.contains('show')`, 'holding a day shows its preview');
@@ -892,12 +941,17 @@ async function demoMode(browser) {
   await page.wait(`!document.querySelector('.grid.fx')`, 'the filter cleared');
   page.check('phone: swipes, holds and quick add');
 
-  /* a day opened from the calendar is a sheet with the same rows; it is pulled shut by its top edge */
+  /* a day opened from the calendar is a sheet with the same rows; a short pull anywhere on it hides it, once it is scrolled to its top */
   await page.tap('.mblock .cell.today');
   await page.wait(`document.querySelector('#sheet .editor .pbands')&&document.querySelector('#sheet .pchip.rw')`, 'the day sheet on a phone, with the plan');
   await page.shot('demo-6-phone-day');
-  await page.finger('#sheet .sheet', {dy: 170, y: 16});
-  await page.wait(`!document.querySelector('#sheet .sheet')`, 'the sheet pulled shut');
+  await page.eval(`document.querySelector('#sheet .sheet').scrollTop=240`);
+  await page.finger('#sheet .sheet', {dy: 70, y: 420});
+  await sleep(300);
+  assert(await page.eval(`!!document.querySelector('#sheet .sheet')&&!document.querySelector('#sheet .sheet').style.transform`), 'scrolled down, a pull scrolls the day and does not hide it');
+  await page.eval(`document.querySelector('#sheet .sheet').scrollTop=0`);
+  await page.finger('#sheet .sheet', {dy: 70, y: 420});
+  await page.wait(`!document.querySelector('#sheet .sheet')`, 'a short pull in the middle of the sheet hides the day');
   await page.cdp('Emulation.setTouchEmulationEnabled', {enabled: false});
   await page.eval(`document.querySelector('.mblock .cell.today').click()`);
   await page.wait(`document.querySelector('#sheet .editor .pbands')`, 'the day sheet again');

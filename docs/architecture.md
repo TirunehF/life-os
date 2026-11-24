@@ -41,11 +41,21 @@ page of its own: the date is the only thing at the top, with the compass
 under it, one line that holds the focus of the day and opens into the week's
 intentions, the month's focus and the week so far. The plan is drawn as rows
 (`planRow`) instead of chips, the sections move to a bar at the bottom, and
-its middle button adds a task, a sport session or a note. Touch stands in
-for the mouse: a row swiped right is done and swiped left moves to tomorrow,
-the date swiped changes the day, and a press that is held shows what
-hovering shows (a day's preview, a filter's tags, a habit's last weeks) and
-opens Settings from the date. A field that is open stays open when
+its middle button adds a task, a sport session or a note. The day's own log
+follows the plan in the order it is filled in: rating, habits, the journal
+(recap, highlight, lowlight, drifts, memory), then sport and people. The
+calendar shows one month, sized to the screen by `calFit()` so that it never
+scrolls, or one week. Touch stands in for the mouse: a row swiped right is
+done and swiped left moves to tomorrow; a sideways swipe anywhere else on a
+page leads to the page beside it in the bar (`pageGo`), while a swipe along
+a title moves in time (the day, the month or week, the period under
+review); the month swiped up or down turns to the next or the previous one;
+a sheet is hidden by a short pull anywhere on it once it is scrolled to its
+top; and a press that is held shows what hovering shows (a day's preview, a
+filter's tags, a habit's last weeks) and opens Settings from the date. One
+function, `swipeTarget()`, decides what a touch may move, and the style
+sheet leaves the browser only the directions the script does not use
+(`touch-action`). A field that is open stays open when
 something else is pressed; what is typed into an add field is kept in
 memory until it is added (`S.drafts`, dropped with everything else when the
 device locks). Nothing about the data or the API differs on a phone.
